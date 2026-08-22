@@ -1,37 +1,49 @@
-CC      = gcc
-CFLAGS  = -std=c99 -Wall -Wextra -Werror -pedantic -O2 -g
-AR      = ar
-ARFLAGS = rcs
+CC      := gcc
+AR      := ar
+ARFLAGS := rcs
 
-GUI_SRC = $(wildcard .gui/*.c)
-GUI_OBJ = $(GUI_SRC:.c=.o)
+BUILD   := build
 
-APP_SRC = $(wildcard .apps/*.c)
-APP_OBJ = $(APP_SRC:.c=.o)
+CFLAGS  := -std=c99 -Wall -Wextra -pedantic -g
+CPPFLAGS:= -I.gui -I.apps
+LDFLAGS :=
+LDLIBS  := -lm
 
-SRC_C   = $(wildcard *.c)
-OBJ     = $(SRC_C:.c=.o) $(GUI_OBJ) $(APP_OBJ)
+GUI_SRC := $(wildcard .gui/*.c)
+APP_SRC := $(wildcard .apps/*.c)
+CORE_SRC:= $(wildcard *.c)
 
-.PHONY: all clean lib test
+SRC     := $(CORE_SRC) $(GUI_SRC) $(APP_SRC)
 
-all: libzircon.a zircond
+OBJ     := $(patsubst %.c,$(BUILD)/%.o,$(SRC))
+DEP     := $(OBJ:.o=.d)
 
-# Static library for linking into CodeOS kernel or userspace
-libzircon.a: $(GUI_OBJ) $(APP_OBJ)
+TARGET  := zircond
+LIBRARY := libzircon.a
+
+.PHONY: all clean debug release
+
+all: $(LIBRARY) $(TARGET)
+
+debug: CFLAGS += -O0 -DDEBUG
+debug: all
+
+release: CFLAGS += -O2 -DNDEBUG
+release: all
+
+$(LIBRARY): $(OBJ)
+	@mkdir -p $(dir $@)
 	$(AR) $(ARFLAGS) $@ $^
 
-# Zircon daemon — standalone userspace process (testable on Linux)
-zircond: $(OBJ)
-	$(CC) $(CFLAGS) -o $@ $^ -lm
+$(TARGET): $(OBJ)
+	$(CC) $(OBJ) -o $@ $(LDFLAGS) $(LDLIBS)
 
-.gui/%.o: .gui/%.c .gui/%.h
-	$(CC) $(CFLAGS) -I.gui -c $< -o $@
-
-.apps/%.o: .apps/%.c .apps/%.h
-	$(CC) $(CFLAGS) -I.apps -I.gui -c $< -o $@
-
-%.o: %.c
-	$(CC) $(CFLAGS) -I.gui -I.apps -c $< -o $@
+$(BUILD)/%.o: %.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
 
 clean:
-	rm -f $(OBJ) libzircon.a zircond
+	rm -rf $(BUILD)
+	rm -f $(TARGET) $(LIBRARY)
+
+-include $(DEP)
