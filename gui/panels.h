@@ -1,11 +1,9 @@
-#ifndef GUI_DESKTOP_H
-#define GUI_DESKTOP_H
+/* Zircon panels header — references kernel GUI as the single source of truth */
+#ifndef ZIRCON_PANELS_H
+#define ZIRCON_PANELS_H
 
-#include <stdint.h>
-
-void gui_desktop_init(int width, int height);
-void gui_desktop_set_bg(uint32_t color);
-int  gui_desktop_width(void);
-int  gui_desktop_height(void);
+/* The canonical GUI declarations live in kernel/gui/desktop.h.
+ * This header exists for Zircon toolkit compatibility only. */
+#include "../../kernel/gui/desktop.h"
 
 #endif

@@ -2,10 +2,10 @@
  * Main entry point. Runs as a userspace service on CodeOS,
  * connects to kernel via IPC, manages apps and the launcher. */
 
-#include ".gui/panels.h"
-#include ".gui/windows.h"
-#include ".gui/widgets.h"
-#include ".apps/app.h"
+#include "gui/panels.h"
+#include "gui/windows.h"
+#include "gui/widgets.h"
+#include "apps/app.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,6 +13,7 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <sys/syscall.h>
+#include <fcntl.h>
 
 /* ── Kernel IPC bridge ── */
 

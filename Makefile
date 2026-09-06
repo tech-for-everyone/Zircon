@@ -1,27 +1,25 @@
-CC      := gcc
-AR      := ar
+CC := x86_64-elf-gcc
+AR := x86_64-elf-ar
 ARFLAGS := rcs
+BUILD := build
 
-BUILD   := build
+CFLAGS := -std=c99 -Wall -Wextra -pedantic -g
+CPPFLAGS := -Igui -Iapps -D_GNU_SOURCE
+LDFLAGS := 
+LDLIBS := -lm
 
-CFLAGS  := -std=c99 -Wall -Wextra -pedantic -g
-CPPFLAGS:= -I.gui -I.apps
-LDFLAGS :=
-LDLIBS  := -lm
+GUI_SRC := $(wildcard gui/*.c)
+APP_SRC := $(wildcard apps/*.c)
+CORE_SRC := $(wildcard *.c)
 
-GUI_SRC := $(wildcard .gui/*.c)
-APP_SRC := $(wildcard .apps/*.c)
-CORE_SRC:= $(wildcard *.c)
+SRC := $(CORE_SRC) $(GUI_SRC) $(APP_SRC)
+OBJ := $(patsubst %.c,$(BUILD)/%.o,$(SRC))
+DEP := $(OBJ:.o=.d)
 
-SRC     := $(CORE_SRC) $(GUI_SRC) $(APP_SRC)
-
-OBJ     := $(patsubst %.c,$(BUILD)/%.o,$(SRC))
-DEP     := $(OBJ:.o=.d)
-
-TARGET  := zircond
+TARGET := zircond
 LIBRARY := libzircon.a
 
-.PHONY: all clean debug release
+.PHONY: all clean debug release run
 
 all: $(LIBRARY) $(TARGET)
 
@@ -45,5 +43,16 @@ $(BUILD)/%.o: %.c
 clean:
 	rm -rf $(BUILD)
 	rm -f $(TARGET) $(LIBRARY)
+
+run: $(TARGET)
+	qemu-system-x86_64 \
+		-cpu Haswell,+smap,+smep \
+		-m 4096 \
+		-smp 4 \
+		-machine q35 \
+		-kernel ./$(TARGET) \
+		-serial stdio \
+		-vga std \
+		-append "kernel.serial=legacy console.shell=false"
 
 -include $(DEP)

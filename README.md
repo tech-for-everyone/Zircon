@@ -21,10 +21,9 @@ No Google services. No sign-in required.
 ## Directory structure
 
 ```
-.gui/          — GUI toolkit (panels, widgets, windows)
-.apps/         — Built-in apps
-.kernel/       — Kernel integration & installer
-.github/       — CI
+gui/           — GUI toolkit (panels, widgets, windows)
+apps/          — Built-in apps
+kernel/        — Kernel integration & installer
 ```
 
 ## Building
@@ -38,7 +37,7 @@ make clean
 ## Installing
 
 ```sh
-sudo bash .kernel/install.sh
+sudo bash kernel/install.sh
 ```
 
 ## License

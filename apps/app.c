@@ -1,6 +1,6 @@
 #include "app.h"
-#include "../.gui/windows.h"
-#include "../.gui/widgets.h"
+#include "../gui/windows.h"
+#include "../gui/widgets.h"
 #include <string.h>
 
 #define ZIRCON_MAX_APPS 32
