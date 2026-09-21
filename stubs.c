@@ -2,6 +2,7 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <time.h>
 #include <sys/types.h>
 
 /* Forward declarations */
@@ -359,6 +360,18 @@ int fputc(int c, FILE *stream) {
     (void)stream;
     write(1, &c, 1);
     return c;
+}
+
+/* time - get calendar time */
+time_t time(time_t *tloc) {
+    (void)tloc;
+    return 0;
+}
+
+/* ctime - convert time to string */
+char *ctime(const time_t *t) {
+    (void)t;
+    return "Thu Jan 1 00:00:00 1970\n";
 }
 
 /* fflush - flush stream */

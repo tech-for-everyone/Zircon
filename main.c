@@ -83,25 +83,10 @@ static void handle_notify(const zircon_ipc_msg_t *msg) {
     printf("\033[1;34m[Zircon]\033[0m %s\n", msg->text);
 }
 
-/* ── Built-in app: Launcher ── */
+/* ── Built-in app: Home Screen ── */
 
-static void launcher_init(zircon_app_t *app) {
-    app->win_id = gui_window_create(0, 0, 400, 500, "Zircon Launcher");
-}
-
-static void launcher_event(zircon_app_t *app, const zircon_event_t *ev) {
-    (void)app;
-    (void)ev;
-}
-
-static zircon_app_t launcher_app = {
-    .name = "Launcher",
-    .init = launcher_init,
-    .event = launcher_event,
-    .stop = 0,
-    .state = ZIRCON_APP_RUNNING,
-    .win_id = -1,
-};
+/* Forward declarations for app registration */
+extern zircon_app_t home_app;
 
 /* ── Main ── */
 
@@ -109,38 +94,58 @@ int main(int argc, char **argv) {
     (void)argc;
     (void)argv;
 
-    printf("Zircon starting...\n");
+    printf("╔══════════════════════════════════════════╗\n");
+    printf("║         Zircon OS v1.0.0 (Mobile)          ║\n");
+    printf("║   Google-free mobile/desktop OS            ║\n");
+    printf("╚══════════════════════════════════════════╝\n");
 
     /* Connect to kernel via IPC */
     zircon_ipc_init();
 
-    gui_desktop_init(1024, 768);
+    /* Set phone screen dimensions */
+    zircon_phone_set_screen(360, 640);
+    gui_desktop_init(zircon_phone_get_width(), zircon_phone_get_height());
     gui_window_init();
     zircon_app_init();
 
-    /* Register built-in apps */
-    zircon_app_register(&launcher_app);
+    /* Register phone apps */
+    zircon_phone_init();
+    zircon_app_register(&home_app);
 
     printf("Zircon ready — %d app(s) registered\n", zircon_app_count());
+    printf("Zircon mobile mode: touch screen %dx%d\n", zircon_phone_get_width(), zircon_phone_get_height());
 
-    zircon_app_launch("Zircon Launcher");
+    zircon_app_launch("Home");
 
-    /* Event loop with IPC polling */
+    /* Event loop with IPC polling and touch processing */
     zircon_event_t ev;
     zircon_ipc_msg_t ipc_msg;
     int running = 1;
     while (running) {
-        /* Poll kernel IPC */
+        /* Poll kernel IPC for phone events */
         while (zircon_ipc_poll(&ipc_msg)) {
             switch (ipc_msg.type) {
             case ZIRCON_IPC_NOTIFY:
                 handle_notify(&ipc_msg);
+                break;
+            case ZIRCON_IPC_APP_LAUNCH: {
+                /* Launch an app by name */
+                zircon_app_t *app = zircon_app_find(ipc_msg.text);
+                if (app) {
+                    zircon_app_launch(app->name);
+                    printf("launched %s\n", app->name);
+                }
+                break;
+            }
+            case ZIRCON_IPC_QS_TOGGLE:
+                zircon_phone_draw_quick_settings();
                 break;
             default:
                 break;
             }
         }
 
+        /* Process touch events */
         ev.type = ZIRCON_EVENT_TICK;
         zircon_app_broadcast(&ev);
     }

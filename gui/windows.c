@@ -58,3 +58,9 @@ gui_window_t *gui_window_get(int id) {
 int gui_window_count(void) {
     return win_count;
 }
+
+void gui_window_close(int id) {
+    if (id < 0 || id >= win_count)
+        return;
+    windows[id].visible = 0;
+}

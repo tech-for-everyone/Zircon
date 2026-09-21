@@ -16,7 +16,7 @@ ISO_DIR := build/iso
 ISO_ROOT := $(ISO_DIR)/iso_root
 
 CFLAGS := -std=c99 -Wall -Wextra -pedantic -g
-CPPFLAGS := -I. -Igui -Iapps -I$(KERNEL_DIR)/kernel -I../pkgs/core/openssl/freestd -I../qt6/posixstubs/include -I../qt6/posixstubs/include/sys -I../qt6/sysroot/usr/include -D_GNU_SOURCE
+CPPFLAGS := -I. -Igui -Iapps -I../pkgs/core/openssl/freestd -I$(KERNEL_DIR)/kernel -I../qt6/posixstubs/include -I../qt6/posixstubs/include/sys -I../qt6/sysroot/usr/include -D_GNU_SOURCE
 LDFLAGS := -L../qt6/sysroot/usr/lib -L/usr/lib/gcc/x86_64-elf/16.2.0 -lgcc
 LDLIBS := -lm
 
