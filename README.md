@@ -1,7 +1,7 @@
 # Zircon — the Better Android
 
 Zircon is a Google-free, Java-free mobile/desktop OS built on the
-[CodeOS](https://github.com/tech-for-everyone/CodeOS) kernel.
+[CodeOS kernel](https://github.com/tech-for-everyone/CodeOS-Kernel).
 
 ## Why
 
