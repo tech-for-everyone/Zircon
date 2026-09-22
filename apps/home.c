@@ -10,6 +10,7 @@
 #include "../apps/calculator.h"
 #include "../apps/music.h"
 #include "../apps/gallery.h"
+#include "../apps/browser.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -27,8 +28,9 @@ static void home_init(struct zircon_app *app) {
     zircon_app_register(&calc_app);
     zircon_app_register(&music_app);
     zircon_app_register(&gallery_app);
+    zircon_app_register(&browser_app);
     apps_registered = 1;
-    printf("home: all apps registered (%d apps)\n", 8);
+    printf("home: all apps registered (%d apps)\n", 9);
 }
 
 static void home_event(struct zircon_app *app, const zircon_event_t *ev) {
@@ -71,7 +73,13 @@ static void home_event(struct zircon_app *app, const zircon_event_t *ev) {
             }
         } else if (row == 4) {
             /* Bottom row: dock */
-            printf("home: dock tap at (%d,%d)\n", tx, ty);
+            if (col == 0) {
+                /* Browser (OpenWeb) */
+                printf("home: launching Browser\n");
+                zircon_app_launch("Browser");
+            } else {
+                printf("home: dock tap at (%d,%d)\n", tx, ty);
+            }
         }
     }
     if (ev->type == ZIRCON_EVENT_TOUCH_UP && ev->touch_count > 0) {

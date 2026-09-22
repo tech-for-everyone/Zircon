@@ -16,25 +16,33 @@ ISO_DIR := build/iso
 ISO_ROOT := $(ISO_DIR)/iso_root
 
 CFLAGS := -std=c99 -Wall -Wextra -pedantic -g
-CPPFLAGS := -I. -Igui -Iapps -I../pkgs/core/openssl/freestd -I$(KERNEL_DIR)/kernel -I../qt6/posixstubs/include -I../qt6/posixstubs/include/sys -I../qt6/sysroot/usr/include -D_GNU_SOURCE
+CPPFLAGS := -I. -Igui -Iapps -Ibrowser -I../qt6/panels -I../pkgs/core/panels/src -I../pkgs/core/openssl/freestd -I$(KERNEL_DIR)/kernel -I../qt6/posixstubs/include -I../qt6/posixstubs/include/sys -I../qt6/sysroot/usr/include -D_GNU_SOURCE
 LDFLAGS := -L../qt6/sysroot/usr/lib -L/usr/lib/gcc/x86_64-elf/16.2.0 -lgcc
 LDLIBS := -lm
+RUST_TOOLCHAIN := /home/codeosuser/.rustup/toolchains/1.92.0-x86_64-unknown-linux-gnu/bin
 
 # ── Sources ──
 
 GUI_SRC := $(wildcard gui/*.c)
 APP_SRC := $(wildcard apps/*.c)
 CORE_SRC := $(wildcard *.c)
+BROWSER_SRC := browser/ow_bridge.c
+SHIM_SRC := browser/ow_html_shim.c
+NET_SRC := browser/net_shim.c
 INIT_SRC := zircon_init.c
 STUBS_SRC := stubs.c
 CRT0_SRC := ../pkgs/core/lib-c/src/crt0.S
 
 SRC := $(CORE_SRC) $(GUI_SRC) $(APP_SRC)
+BROWSER_OBJ := $(BUILD)/browser_ow_bridge.o
+OW_HTML_OBJ := $(BUILD)/browser_ow_html_shim.o
+NET_OBJ := $(BUILD)/browser_net_shim.o
+RUST_LIB := ../kernel/kernel/rust_ow/target/x86_64-unknown-none/release/libow_http.a
 OBJ := $(patsubst %.c,$(BUILD)/%.o,$(SRC))
 STUBS_OBJ := $(BUILD)/stubs.o
 CRT0_OBJ := $(BUILD)/crt0.o
 LIBC_OBJ := $(STUBS_OBJ) $(CRT0_OBJ)
-DEP := $(OBJ:.o=.d) $(STUBS_OBJ:.o=.d) $(CRT0_OBJ:.o=.d)
+DEP := $(OBJ:.o=.d) $(STUBS_OBJ:.o=.d) $(CRT0_OBJ:.o=.d) $(BROWSER_OBJ:.o=.d) $(OW_HTML_OBJ:.o=.d) $(NET_OBJ:.o=.d)
 
 # ── Targets ──
 
@@ -55,16 +63,36 @@ debug: all
 release: CFLAGS += -O2 -DNDEBUG
 release: all
 
+# ── Rust library (OpenWeb) ──
+
+$(RUST_LIB):
+	$(MKDIR) $(dir $@)
+	cd $(KERNEL_DIR)/rust_ow && PATH="$(RUST_TOOLCHAIN):$$PATH" cargo build --target x86_64-unknown-none --release
+
 # ── Library ──
 
-$(ZIRCON_LIB): $(OBJ)
+$(ZIRCON_LIB): $(OBJ) $(BROWSER_OBJ) $(OW_HTML_OBJ) $(NET_OBJ)
 	$(MKDIR) $(dir $@)
 	$(AR) $(ARFLAGS) $@ $^
 
+# ── Browser & OpenWeb bridge ──
+
+$(BROWSER_OBJ): $(BROWSER_SRC)
+	$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
+
+$(OW_HTML_OBJ): $(SHIM_SRC)
+	$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
+
+$(NET_OBJ): $(NET_SRC)
+	$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
+
 # ── Compositor (zircond) ──
 
-$(ZIRCON_COMPOSITOR): $(filter-out $(BUILD)/zircon_init.o $(STUBS_OBJ), $(OBJ)) $(LIBC_OBJ)
-	$(CC) -nostartfiles -o $@ $(filter-out $(BUILD)/zircon_init.o $(STUBS_OBJ),$(OBJ)) $(LIBC_OBJ) $(LDFLAGS) $(LDLIBS)
+$(ZIRCON_COMPOSITOR): $(filter-out $(BUILD)/zircon_init.o $(STUBS_OBJ), $(OBJ)) $(LIBC_OBJ) $(BROWSER_OBJ) $(OW_HTML_OBJ) $(NET_OBJ)
+	$(CC) -nostartfiles -o $@ $(filter-out $(BUILD)/zircon_init.o $(STUBS_OBJ),$(OBJ)) $(LIBC_OBJ) $(BROWSER_OBJ) $(OW_HTML_OBJ) $(NET_OBJ) $(LDFLAGS) $(LDLIBS) $(RUST_LIB)
 
 # ── Init process ──
 
@@ -95,7 +123,7 @@ $(BUILD)/%.o: %.c
 
 # ── Zircon ELF (kernel + initramfs) ──
 
-$(ZIRCON_ELF): $(ZIRCON_KERNEL) $(ZIRCON_INIT) $(ZIRCON_COMPOSITOR) $(ZIRCON_LIB)
+$(ZIRCON_ELF): $(ZIRCON_KERNEL) $(ZIRCON_INIT) $(ZIRCON_COMPOSITOR) $(ZIRCON_LIB) $(RUST_LIB)
 	$(MKDIR) $(dir $@)
 	$(CP) $(ZIRCON_KERNEL) $@
 

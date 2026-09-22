@@ -259,6 +259,13 @@ char *strncpy(char *dest, const char *src, size_t n) {
     return dest;
 }
 
+/* strcpy - copy string */
+char *strcpy(char *dest, const char *src) {
+    char *d = dest;
+    while ((*d++ = *src++)) {}
+    return dest;
+}
+
 /* strchr - find character in string */
 char *strchr(const char *s, int c) {
     while (*s) {

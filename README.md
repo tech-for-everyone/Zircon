@@ -17,20 +17,23 @@ No Google services. No sign-in required.
 - **CodeOS kernel** — fast, minimal, GPLv3
 - **Google-free** — no Play Services, no tracking, no sign-in
 - **Extensible** — write apps in C or Python
+- **Built-in apps** — Phone, SMS, Settings, Camera, Clock, Calculator, Music, Gallery
+- **OpenWeb browser** — Rust-powered HTTP + HTML rendering (libow_http.a), no WebKit
 
 ## Directory structure
 
 ```
 gui/           — GUI toolkit (panels, widgets, windows)
-apps/          — Built-in apps
+apps/          — Built-in apps (incl. Browser)
+browser/       — OpenWeb bridge + render/network shims for libow_http.a
 kernel/        — Kernel integration & installer
 ```
 
 ## Building
 
 ```sh
-make          # builds libzircon.a + zircond
-make lib      # builds libzircon.a only
+make          # builds libzircon.a + zircond (links Rust libow_http.a)
+make iso      # builds the bootable Zircon ISO
 make clean
 ```
 
