@@ -19,7 +19,7 @@ CFLAGS := -std=c99 -Wall -Wextra -pedantic -g
 CPPFLAGS := -I. -Igui -Iapps -Ibrowser -I../qt6/panels -I../pkgs/core/panels/src -I../pkgs/core/openssl/freestd -I$(KERNEL_DIR)/kernel -I../qt6/posixstubs/include -I../qt6/posixstubs/include/sys -I../qt6/sysroot/usr/include -D_GNU_SOURCE
 LDFLAGS := -L../qt6/sysroot/usr/lib -L/usr/lib/gcc/x86_64-elf/16.2.0 -lgcc
 LDLIBS := -lm
-RUST_TOOLCHAIN := /home/codeosuser/.rustup/toolchains/1.92.0-x86_64-unknown-linux-gnu/bin
+RUST_TOOLCHAIN := $(HOME)/.rustup/toolchains/1.92.0-x86_64-unknown-linux-gnu/bin
 
 # ── Sources ──
 
