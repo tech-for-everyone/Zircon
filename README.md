@@ -45,4 +45,4 @@ sudo bash kernel/install.sh
 
 ## License
 
-MIT — Copyright (c) 2026 gitdev
+GPLv3 Lisence
