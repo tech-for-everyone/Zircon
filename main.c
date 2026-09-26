@@ -6,75 +6,29 @@
 #include "gui/windows.h"
 #include "gui/widgets.h"
 #include "apps/app.h"
+#include "zircon_abi.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <sys/mman.h>
-#include <sys/syscall.h>
-#include <fcntl.h>
 
-/* ── Kernel IPC bridge ── */
+/* freestd unistd.h has no usleep; the kernel SLEEP syscall is in ms. */
+extern int usleep(unsigned int usec);
 
-#define ZIRCON_IPC_MAGIC  0x5A495243
-
-typedef enum {
-    ZIRCON_IPC_NONE = 0,
-    ZIRCON_IPC_NOTIFY,
-    ZIRCON_IPC_APP_LAUNCH,
-    ZIRCON_IPC_APP_CLOSE,
-    ZIRCON_IPC_TOUCH_EVENT,
-    ZIRCON_IPC_CMD_RESP,
-    ZIRCON_IPC_APP_LIST,
-    ZIRCON_IPC_QS_TOGGLE,
-} zircon_ipc_type_t;
-
-typedef struct {
-    zircon_ipc_type_t type;
-    int x, y, w, h;
-    int id;
-    char text[128];
-} zircon_ipc_msg_t;
-
-typedef struct {
-    uint32_t magic;
-    volatile uint32_t head;
-    volatile uint32_t tail;
-    zircon_ipc_msg_t msgs[16];
-} zircon_ipc_ring_t;
-
-static zircon_ipc_ring_t *ipc_ring;
+/* ── Kernel IPC bridge (copy-based, via SYSCALL_ZIRCON_IPC) ── */
 
 static int zircon_ipc_init(void) {
-    /* Get shared page physical address from kernel */
-    long phys = syscall(7, 0, 0, 0, 0, 0);
-    if (phys <= 0) {
+    if (zs_ipc_query() < 0) {
         fprintf(stderr, "zircon: no kernel IPC\n");
         return -1;
     }
-    /* Map it */
-    int fd = open("/dev/mem", O_RDWR);
-    if (fd < 0) return -1;
-    ipc_ring = (zircon_ipc_ring_t *)mmap(0, 4096, PROT_READ|PROT_WRITE,
-                                          MAP_SHARED, fd, phys);
-    close(fd);
-    if (ipc_ring == MAP_FAILED || ipc_ring->magic != ZIRCON_IPC_MAGIC) {
-        ipc_ring = 0;
-        return -1;
-    }
-    printf("zircon: IPC connected at 0x%lx\n", phys);
+    printf("zircon: IPC connected\n");
     return 0;
 }
 
 static int zircon_ipc_poll(zircon_ipc_msg_t *msg) {
-    if (!ipc_ring) return 0;
-    if (ipc_ring->tail == ipc_ring->head) return 0;
-    uint32_t t = ipc_ring->tail;
-    *msg = ipc_ring->msgs[t];
-    __sync_synchronize();
-    ipc_ring->tail = (t + 1) % 16;
-    return 1;
+    return zs_ipc_recv(msg) == 1;
 }
 
 /* ── Notification handler ── */
@@ -102,8 +56,13 @@ int main(int argc, char **argv) {
     /* Connect to kernel via IPC */
     zircon_ipc_init();
 
-    /* Set phone screen dimensions */
-    zircon_phone_set_screen(360, 640);
+    /* Set phone screen dimensions from the real framebuffer */
+    zircon_fb_info_t fb;
+    if (zs_fb_info(&fb) == 0 && fb.width > 0 && fb.height > 0) {
+        zircon_phone_set_screen((int)fb.width, (int)fb.height);
+    } else {
+        zircon_phone_set_screen(360, 640);
+    }
     gui_desktop_init(zircon_phone_get_width(), zircon_phone_get_height());
     gui_window_init();
     zircon_app_init();
@@ -120,6 +79,9 @@ int main(int argc, char **argv) {
     /* Event loop with IPC polling and touch processing */
     zircon_event_t ev;
     zircon_ipc_msg_t ipc_msg;
+    zircon_input_ev_t iev;
+    int prev_buttons = 0;
+    int prev_mx = 0, prev_my = 0;
     int running = 1;
     while (running) {
         /* Poll kernel IPC for phone events */
@@ -145,9 +107,54 @@ int main(int argc, char **argv) {
             }
         }
 
-        /* Process touch events */
+        /* Poll input once per frame: buttons → touch, motion → mouse, keys → keys. */
+        if (zs_input_poll(&iev) >= 0) {
+            int buttons = iev.mouse_buttons;
+            int mx = iev.mouse_x;
+            int my = iev.mouse_y;
+            int left = (buttons & 1) != 0;
+            int was_left = (prev_buttons & 1) != 0;
+
+            if (left != was_left || mx != prev_mx || my != prev_my) {
+                memset(&ev, 0, sizeof(ev));
+                ev.mx = mx;
+                ev.my = my;
+                ev.touch_count = 1;
+                ev.touch[0].id = 0;
+                ev.touch[0].x = mx;
+                ev.touch[0].y = my;
+                ev.touch[0].pressure = 1;
+
+                if (left && !was_left) {
+                    ev.type = ZIRCON_EVENT_TOUCH_DOWN;
+                } else if (!left && was_left) {
+                    ev.type = ZIRCON_EVENT_TOUCH_UP;
+                } else if (left) {
+                    ev.type = ZIRCON_EVENT_TOUCH_MOVE;
+                } else {
+                    ev.type = ZIRCON_EVENT_MOUSE_MOVE;
+                    int tid = 0;
+                    zircon_touch_process(1, &mx, &my, &tid);
+                }
+                zircon_app_broadcast(&ev);
+            }
+            prev_buttons = buttons;
+            prev_mx = mx;
+            prev_my = my;
+
+            if (iev.type == 1) {
+                memset(&ev, 0, sizeof(ev));
+                ev.type = ZIRCON_EVENT_KEY_DOWN;
+                ev.key = iev.key;
+                zircon_app_broadcast(&ev);
+            }
+        }
+
+        /* Process frame tick */
         ev.type = ZIRCON_EVENT_TICK;
         zircon_app_broadcast(&ev);
+
+        usleep(16000); /* ~60 Hz */
     }
 
     printf("Zircon shutting down\n");

@@ -13,6 +13,8 @@ void browser_new_tab(const char *url);
 void browser_close_tab(int idx);
 void browser_go_back(void);
 void browser_go_forward(void);
+void browser_reload_page(void);
+void browser_stop_loading(void);
 const char *browser_get_url(void);
 void browser_render_page(void);
 

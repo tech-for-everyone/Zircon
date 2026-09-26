@@ -68,22 +68,14 @@ static void browser_event(struct zircon_app *app, const zircon_event_t *ev) {
         /* Navigation buttons */
         else if (ty < 80) {
             if (tx < w / 4) {
-                /* Back button */
-                if (ow_get_tab_active() > 0) {
-                    ow_set_tab_active(ow_get_tab_active() - 1);
-                    browser_active = 1;
-                    printf("browser: back\n");
-                }
+                /* Back button — previous history entry (WebView go_back) */
+                browser_go_back();
             } else if (tx < w / 2) {
-                /* Forward button */
-                if (ow_get_tab_active() < ow_tab_used_count() - 1) {
-                    ow_set_tab_active(ow_get_tab_active() + 1);
-                    browser_active = 1;
-                    printf("browser: forward\n");
-                }
+                /* Forward button — next history entry (WebView go_forward) */
+                browser_go_forward();
             } else if (tx < w * 3 / 4) {
-                /* Reload button */
-                printf("browser: reload\n");
+                /* Reload button — refresh current page past the cache */
+                browser_reload_page();
             } else {
                 /* Home button */
                 ow_tab_new("https://www.google.com");
@@ -111,6 +103,9 @@ static void browser_event(struct zircon_app *app, const zircon_event_t *ev) {
         /* Handle keyboard navigation */
         if (ev->key == 13) { /* Enter */
             printf("browser: enter key\n");
+        } else if (ev->key == 27 || ev->key == 's' || ev->key == 'S') {
+            /* Escape / s — stop loading (WebView stop_loading) */
+            browser_stop_loading();
         }
     }
 
@@ -160,20 +155,43 @@ void browser_close_tab(int idx) {
 }
 
 void browser_go_back(void) {
+    ow_go_back();
     int active = ow_get_tab_active();
-    if (active > 0) {
-        ow_set_tab_active(active - 1);
-        printf("browser: went back\n");
+    openweb_tab_t *tabs = ow_get_tabs();
+    if (tabs && active >= 0 && active < ow_get_tab_count() && tabs[active].url[0]) {
+        strncpy(current_url, tabs[active].url, OW_URL_MAX - 1);
+        current_url[OW_URL_MAX - 1] = '\0';
     }
+    printf("browser: went back in history\n");
 }
 
 void browser_go_forward(void) {
+    ow_go_forward();
     int active = ow_get_tab_active();
-    int count = ow_tab_used_count();
-    if (active < count - 1) {
-        ow_set_tab_active(active + 1);
-        printf("browser: went forward\n");
+    openweb_tab_t *tabs = ow_get_tabs();
+    if (tabs && active >= 0 && active < ow_get_tab_count() && tabs[active].url[0]) {
+        strncpy(current_url, tabs[active].url, OW_URL_MAX - 1);
+        current_url[OW_URL_MAX - 1] = '\0';
     }
+    printf("browser: went forward in history\n");
+}
+
+void browser_reload_page(void) {
+    int active = ow_get_tab_active();
+    openweb_tab_t *tabs = ow_get_tabs();
+    if (tabs && active >= 0 && active < ow_get_tab_count() && tabs[active].url[0]) {
+        strncpy(current_url, tabs[active].url, OW_URL_MAX - 1);
+        current_url[OW_URL_MAX - 1] = '\0';
+        ow_navigate_fresh(current_url);
+        printf("browser: reloading %s\n", current_url);
+    } else {
+        printf("browser: nothing to reload\n");
+    }
+}
+
+void browser_stop_loading(void) {
+    ow_stop_loading();
+    printf("browser: stopped loading\n");
 }
 
 const char *browser_get_url(void) {
