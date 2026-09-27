@@ -3,3 +3,4 @@
 *.d
 zircond
 build/
+kernel/codeos-1-kernel.bin
