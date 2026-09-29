@@ -56,6 +56,14 @@ ZIRCON_LIB := $(BUILD)/libzircon.a
 ZIRCON_ELF := $(BUILD)/zircon.elf
 ZIRCON_ISO := $(BUILD)/zircon.iso
 
+# Limine stage-3 image. Do NOT use $(KERNEL_DIR)/bootloader/limine-bios.sys:
+# that is a stale 351944-byte copy which does not match limine-bios-cd.bin,
+# and limine rejects it at boot with "limine-bios.sys size incorrect" /
+# "PANIC: Failed to load stage 3". The matching 302836-byte file is the one
+# CodeOS's own working ISO ships, from its iso_root.
+LIMINE_BIOS_SYS := $(KERNEL_DIR)/bootloader/iso_root/boot/limine-bios.sys
+LIMINE_DEPLOY := $(KERNEL_DIR)/bootloader/limine-deploy
+
 .PHONY: all clean debug release run iso initramfs zircon-init
 
 all: $(ZIRCON_LIB) $(ZIRCON_COMPOSITOR) $(ZIRCON_INIT) $(ZIRCON_ELF)
@@ -155,7 +163,7 @@ iso: initramfs
 	$(CP) $(ZIRCON_INIT) $(ISO_ROOT)/sbin/zircon_init
 	$(CP) $(ZIRCON_COMPOSITOR) $(ISO_ROOT)/sbin/zircond
 	$(CP) $(ZIRCON_KERNEL) $(ISO_ROOT)/boot/zircon-kernel.bin
-	$(CP) $(KERNEL_DIR)/codeos-1-kernel.iso $(ISO_ROOT)/ 2>/dev/null || true
+	$(CP) $(KERNEL_DIR)/codeos-1.0.iso $(ISO_ROOT)/ 2>/dev/null || true
 	# Create init script
 	echo '#!/bin/sh' > $(ISO_ROOT)/init
 	echo 'mount -t proc none /proc' >> $(ISO_ROOT)/init
@@ -163,33 +171,36 @@ iso: initramfs
 	echo 'echo "Zircon OS v1.0.0"' >> $(ISO_ROOT)/init
 	echo '/sbin/zircon_init' >> $(ISO_ROOT)/init
 	chmod +x $(ISO_ROOT)/init
-	# Copy limine bootloader files
+	# Copy limine bootloader files. These are the El Torito BIOS/UEFI images
+	# plus the stage-3 image limine loads after its own stage 2.
 	$(MKDIR) $(ISO_ROOT)/boot/limine
-	$(CP) $(KERNEL_DIR)/bootloader/limine-bios-cd.bin $(ISO_ROOT)/boot/ 2>/dev/null || true
-	$(CP) $(KERNEL_DIR)/bootloader/limine-bios.sys $(ISO_ROOT)/boot/ 2>/dev/null || true
-	$(CP) $(KERNEL_DIR)/bootloader/limine-uefi-cd.bin $(ISO_ROOT)/boot/ 2>/dev/null || true
-	# Create Zircon limine config
-	$(MKDIR) $(ISO_ROOT)/boot/limine
-	cp $(KERNEL_DIR)/bootloader/limine.conf $(ISO_ROOT)/boot/limine.conf 2>/dev/null || true
-	# Build the ISO using kernel's existing boot infrastructure
+	$(CP) $(KERNEL_DIR)/bootloader/limine-bios-cd.bin $(ISO_ROOT)/boot/
+	$(CP) $(KERNEL_DIR)/bootloader/limine-uefi-cd.bin $(ISO_ROOT)/boot/
+	$(CP) $(LIMINE_BIOS_SYS) $(ISO_ROOT)/boot/
+	# Zircon's OWN limine config, not the kernel's. The kernel config's
+	# default_entry is /CodeOS, whose kernel_path (codeos-1-kernel.bin) is
+	# absent from this image, so the countdown would land on a PANIC.
+	$(CP) bootloader/limine.conf $(ISO_ROOT)/boot/limine.conf
+	# Zircon's limine.conf sets `wallpaper: boot():/boot/splash.png`.
+	$(CP) $(KERNEL_DIR)/bootloader/splash.png $(ISO_ROOT)/boot/
+	# Build the ISO. These flags mirror the kernel's working codeos-1.0.iso
+	# rule (kernel/Makefile:479). The previous form here passed
+	# -c boot/boot.cat / -eltorito-alt-boot / -eltorito-platform 0xef /
+	# -isohybrid-mbr, which libisofs rejects ("Invalid image size 3072 Kb.
+	# Must be one of 1.2, 1.44or 2.88 Mb"); the 2>/dev/null hid that and a
+	# broken fallback silently produced an unbootable image.
 	xorriso -as mkisofs \
-		-o $(ZIRCON_ISO) \
 		-b boot/limine-bios-cd.bin \
-		-c boot/boot.cat \
 		-no-emul-boot \
 		-boot-load-size 4 \
-		-eltorito-alt-boot \
-		-e boot/limine-uefi-cd.bin \
-		-eltorito-platform 0xef \
-		-isohybrid-mbr $(KERNEL_DIR)/bootloader/limine-bios.sys \
-		$(ISO_ROOT) 2>/dev/null || \
-	xorriso -as mkisofs \
-		-o $(ZIRCON_ISO) \
-		-b boot/limine-bios.sys \
-		-c boot/boot.cat \
-		-no-emul-boot \
-		-boot-load-size 4 \
-		$(ISO_ROOT)
+		-boot-info-table \
+		--efi-boot boot/limine-uefi-cd.bin \
+		-efi-boot-part --efi-boot-image --protective-msdos-label \
+		$(ISO_ROOT) -o $(ZIRCON_ISO)
+	# limine-deploy patches the stage-2 copy inside the image with the config
+	# location. Without it the BIOS finds the El Torito image, prints
+	# "Booting from DVD/CD..." and then hangs forever with no diagnostic.
+	$(LIMINE_DEPLOY) bios-install $(ZIRCON_ISO)
 	@echo "Zircon ISO built: $(ZIRCON_ISO)"
 
 # ── Run ──
