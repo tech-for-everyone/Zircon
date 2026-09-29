@@ -212,9 +212,13 @@ run: $(ZIRCON_ISO)
 		-smp 4 \
 		-machine q35 \
 		-cdrom $(ZIRCON_ISO) \
+		-boot order=d \
 		-serial stdio \
-		-vga std \
-		-append "kernel.serial=legacy console.shell=false"
+		-vga std
+	# The kernel cmdline lives in the limine config, not on the QEMU command
+	# line: -append is rejected outright without -kernel ("-append only
+	# allowed with -kernel option"), and this boots an ISO through limine, so
+	# the old line made `make run` fail before QEMU ever started.
 
 # ── Clean ──
 
