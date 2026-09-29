@@ -205,9 +205,12 @@ iso: initramfs
 
 # ── Run ──
 
+# The kernel cmdline lives in the limine config, not on the QEMU command line:
+# -append is rejected without -kernel ("-append only allowed with -kernel
+# option"), and this boots an ISO through limine.
 run: $(ZIRCON_ISO)
 	qemu-system-x86_64 \
-		-cpu Haswell,+smap,+smep \
+		-cpu Haswell,+smep \
 		-m 4096 \
 		-smp 4 \
 		-machine q35 \
@@ -215,10 +218,13 @@ run: $(ZIRCON_ISO)
 		-boot order=d \
 		-serial stdio \
 		-vga std
-	# The kernel cmdline lives in the limine config, not on the QEMU command
-	# line: -append is rejected outright without -kernel ("-append only
-	# allowed with -kernel option"), and this boots an ISO through limine, so
-	# the old line made `make run` fail before QEMU ever started.
+	# NOT +smap. The CodeOS kernel faults immediately once it turns SMAP on:
+	#   !!! PF at RIP=0xffffffff80262dd9 CR2=0xffff800000241208 err=1 !!!
+	# reproduced identically under KVM and TCG, on both -machine q35 and pc,
+	# and independent of -m/-smp. SMEP alone is fine ("SMEP on, SMAP off" and
+	# the kernel reaches "zircon: IPC bridge connected"). So this is a kernel
+	# bug in the SMAP enablement path, worked around here rather than fixed --
+	# re-enable +smap once the kernel side is sorted.
 
 # ── Clean ──
 
