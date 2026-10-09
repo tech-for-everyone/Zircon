@@ -1,5 +1,5 @@
 /* Zircon Home — Phone home screen launcher */
-#include "app.h"
+#include "zircapp.h"
 #include "../gui/windows.h"
 #include "../gui/widgets.h"
 #include "../apps/phone.h"
@@ -16,30 +16,35 @@
 
 static int apps_registered = 0;
 
-static void home_init(struct zircon_app *app) {
+static void home_init(struct zircapp_app *app) {
     (void)app;
-    app->win_id = gui_window_create(0, 0, zircon_phone_get_width(), zircon_phone_get_height(), "Home");
+    /* zircapp_launch() re-runs init() on every launch, and Home is itself
+     * a launchable registry entry, so re-registering the children here
+     * would append a second copy of all nine on each tap.  Register once. */
+    if (apps_registered)
+        return;
+    app->win_id = gui_window_create(0, 0, zircapp_phone_get_width(), zircapp_phone_get_height(), "Home");
     /* Register all phone apps */
-    zircon_app_register(&phone_app);
-    zircon_app_register(&sms_app);
-    zircon_app_register(&settings_app);
-    zircon_app_register(&camera_app);
-    zircon_app_register(&clock_app);
-    zircon_app_register(&calc_app);
-    zircon_app_register(&music_app);
-    zircon_app_register(&gallery_app);
-    zircon_app_register(&browser_app);
+    zircapp_register(&phone_app);
+    zircapp_register(&sms_app);
+    zircapp_register(&settings_app);
+    zircapp_register(&camera_app);
+    zircapp_register(&clock_app);
+    zircapp_register(&calc_app);
+    zircapp_register(&music_app);
+    zircapp_register(&gallery_app);
+    zircapp_register(&browser_app);
     apps_registered = 1;
     printf("home: all apps registered (%d apps)\n", 9);
 }
 
-static void home_event(struct zircon_app *app, const zircon_event_t *ev) {
+static void home_event(struct zircapp_app *app, const zircapp_event_t *ev) {
     (void)app;
-    if (ev->type == ZIRCON_EVENT_TOUCH_DOWN && ev->touch_count > 0) {
+    if (ev->type == ZIRCAPP_EVENT_TOUCH_DOWN && ev->touch_count > 0) {
         int tx = ev->touch[0].x;
         int ty = ev->touch[0].y;
-        int w = zircon_phone_get_width();
-        int h = zircon_phone_get_height();
+        int w = zircapp_phone_get_width();
+        int h = zircapp_phone_get_height();
         int col = tx / (w / 4);
         int row = ty / (h / 5);
         if (row == 0) {
@@ -76,41 +81,41 @@ static void home_event(struct zircon_app *app, const zircon_event_t *ev) {
             if (col == 0) {
                 /* Browser (OpenWeb) */
                 printf("home: launching Browser\n");
-                zircon_app_launch("Browser");
+                zircapp_launch("Browser");
             } else {
                 printf("home: dock tap at (%d,%d)\n", tx, ty);
             }
         }
     }
-    if (ev->type == ZIRCON_EVENT_TOUCH_UP && ev->touch_count > 0) {
-        int h = zircon_phone_get_height();
+    if (ev->type == ZIRCAPP_EVENT_TOUCH_UP && ev->touch_count > 0) {
+        int h = zircapp_phone_get_height();
         /* Swipe up for app drawer */
         if (ev->touch[0].y < h / 4) {
-            zircon_phone_draw_app_drawer();
+            zircapp_phone_draw_app_drawer();
             printf("home: app drawer opened\n");
         }
         /* Swipe down for quick settings */
         if (ev->touch[0].y > h * 3 / 4) {
-            zircon_phone_draw_quick_settings();
+            zircapp_phone_draw_quick_settings();
             printf("home: quick settings opened\n");
         }
     }
 }
 
-static void home_stop(struct zircon_app *app) {
+static void home_stop(struct zircapp_app *app) {
     (void)app;
     gui_window_close(app->win_id);
 }
 
-zircon_app_t home_app = {
+zircapp_app_t home_app = {
     .name = "Home",
     .init = home_init,
     .event = home_event,
     .stop = home_stop,
-    .state = ZIRCON_APP_STOPPED,
+    .state = ZIRCAPP_APP_STOPPED,
     .win_id = -1,
 };
 
 void zircon_home_register(void) {
-    zircon_app_register(&home_app);
+    zircapp_register(&home_app);
 }

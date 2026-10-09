@@ -1,5 +1,5 @@
 /* Zircon Browser — OpenWeb integration for Zircon mobile OS */
-#include "app.h"
+#include "zircapp.h"
 #include "../gui/windows.h"
 #include "../gui/widgets.h"
 #include "browser.h"
@@ -42,22 +42,22 @@ static void browser_draw_links(int x, int y, int w) {
     }
 }
 
-static void browser_init(struct zircon_app *app) {
+static void browser_init(struct zircapp_app *app) {
     (void)app;
-    app->win_id = gui_window_create(0, 0, zircon_phone_get_width(), zircon_phone_get_height(), "Browser");
+    app->win_id = gui_window_create(0, 0, zircapp_phone_get_width(), zircapp_phone_get_height(), "Browser");
     browser_active = 1;
     current_url[0] = '\0';
     show_url_bar = 1;
     printf("browser: initialized\n");
 }
 
-static void browser_event(struct zircon_app *app, const zircon_event_t *ev) {
+static void browser_event(struct zircapp_app *app, const zircapp_event_t *ev) {
     (void)app;
-    if (ev->type == ZIRCON_EVENT_TOUCH_DOWN && ev->touch_count > 0) {
+    if (ev->type == ZIRCAPP_EVENT_TOUCH_DOWN && ev->touch_count > 0) {
         int tx = ev->touch[0].x;
         int ty = ev->touch[0].y;
-        int w = zircon_phone_get_width();
-        int h = zircon_phone_get_height();
+        int w = zircapp_phone_get_width();
+        int h = zircapp_phone_get_height();
 
         /* URL bar at top */
         if (ty < 40) {
@@ -99,7 +99,7 @@ static void browser_event(struct zircon_app *app, const zircon_event_t *ev) {
         }
     }
 
-    if (ev->type == ZIRCON_EVENT_KEY_DOWN) {
+    if (ev->type == ZIRCAPP_EVENT_KEY_DOWN) {
         /* Handle keyboard navigation */
         if (ev->key == 13) { /* Enter */
             printf("browser: enter key\n");
@@ -110,7 +110,7 @@ static void browser_event(struct zircon_app *app, const zircon_event_t *ev) {
     }
 
     /* Handle web events */
-    if (ev->type == ZIRCON_EVENT_TICK) {
+    if (ev->type == ZIRCAPP_EVENT_TICK) {
         /* Update page rendering */
         if (browser_active) {
             /* ow_render_rs is called by the compositor to render the page */
@@ -118,18 +118,18 @@ static void browser_event(struct zircon_app *app, const zircon_event_t *ev) {
     }
 }
 
-static void browser_stop(struct zircon_app *app) {
+static void browser_stop(struct zircapp_app *app) {
     (void)app;
     gui_window_close(app->win_id);
     browser_active = 0;
 }
 
-zircon_app_t browser_app = {
+zircapp_app_t browser_app = {
     .name = "Browser",
     .init = browser_init,
     .event = browser_event,
     .stop = browser_stop,
-    .state = ZIRCON_APP_STOPPED,
+    .state = ZIRCAPP_APP_STOPPED,
     .win_id = -1,
 };
 

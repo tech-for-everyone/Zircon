@@ -1,12 +1,12 @@
 #ifndef ZIRCON_BROWSER_H
 #define ZIRCON_BROWSER_H
 
-#include "app.h"
+#include "zircapp.h"
 #include <openweb.h>
 #include <ow_http.h>
 #include <ow_html.h>
 
-extern zircon_app_t browser_app;
+extern zircapp_app_t browser_app;
 
 void browser_navigate(const char *url);
 void browser_new_tab(const char *url);

@@ -1,5 +1,5 @@
-#ifndef ZIRCON_PHONE_H
-#define ZIRCON_PHONE_H
-#include "app.h"
-extern zircon_app_t phone_app;
+#ifndef ZIRCAPP_PHONE_H
+#define ZIRCAPP_PHONE_H
+#include "zircapp.h"
+extern zircapp_app_t phone_app;
 #endif

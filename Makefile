@@ -28,6 +28,7 @@ RUST_TOOLCHAIN := $(HOME)/.rustup/toolchains/1.92.0-x86_64-unknown-linux-gnu/bin
 
 GUI_SRC := $(wildcard gui/*.c)
 APP_SRC := $(wildcard apps/*.c)
+ZIRCAPP_SRC := $(wildcard zircapp/*.c)
 CORE_SRC := $(wildcard *.c)
 BROWSER_SRC := browser/ow_bridge.c
 SHIM_SRC := browser/ow_html_shim.c
@@ -36,7 +37,8 @@ INIT_SRC := zircon_init.c
 STUBS_SRC := stubs.c
 CRT0_SRC := ../pkgs/core/lib-c/src/crt0.S
 
-SRC := $(CORE_SRC) $(GUI_SRC) $(APP_SRC)
+SRC := $(CORE_SRC) $(GUI_SRC) $(APP_SRC) $(ZIRCAPP_SRC)
+ZIRCAPP_OBJ := $(patsubst %.c,$(BUILD)/%.o,$(ZIRCAPP_SRC))
 BROWSER_OBJ := $(BUILD)/browser_ow_bridge.o
 OW_HTML_OBJ := $(BUILD)/browser_ow_html_shim.o
 NET_OBJ := $(BUILD)/browser_net_shim.o
@@ -53,6 +55,7 @@ ZIRCON_KERNEL := $(KERNEL_DIR)/codeos-1-kernel.bin
 ZIRCON_INIT := $(BUILD)/zircon_init
 ZIRCON_COMPOSITOR := $(BUILD)/zircond
 ZIRCON_LIB := $(BUILD)/libzircon.a
+ZIRCON_APP_LIB := $(BUILD)/libzircapp.a
 ZIRCON_ELF := $(BUILD)/zircon.elf
 ZIRCON_ISO := $(BUILD)/zircon.iso
 
@@ -66,7 +69,7 @@ LIMINE_DEPLOY := $(KERNEL_DIR)/bootloader/limine-deploy
 
 .PHONY: all clean debug release run iso initramfs zircon-init
 
-all: $(ZIRCON_LIB) $(ZIRCON_COMPOSITOR) $(ZIRCON_INIT) $(ZIRCON_ELF)
+all: $(ZIRCON_LIB) $(ZIRCON_APP_LIB) $(ZIRCON_COMPOSITOR) $(ZIRCON_INIT) $(ZIRCON_ELF)
 
 debug: CFLAGS += -O0 -DDEBUG
 debug: all
@@ -83,6 +86,13 @@ $(RUST_LIB):
 # ── Library ──
 
 $(ZIRCON_LIB): $(OBJ) $(BROWSER_OBJ) $(OW_HTML_OBJ) $(NET_OBJ)
+	$(MKDIR) $(dir $@)
+	$(AR) $(ARFLAGS) $@ $^
+
+# ── ZircApp framework library ──
+# The framework sources are also compiled straight into zircond/libzircon.a
+# (they are in SRC); this archive is the standalone, linkable deliverable.
+$(ZIRCON_APP_LIB): $(ZIRCAPP_OBJ)
 	$(MKDIR) $(dir $@)
 	$(AR) $(ARFLAGS) $@ $^
 
@@ -226,11 +236,22 @@ run: $(ZIRCON_ISO)
 	# bug in the SMAP enablement path, worked around here rather than fixed --
 	# re-enable +smap once the kernel side is sorted.
 
+# ── Host tests (no kernel, no boot) ──
+# Phase 1 drives the framework itself (tests/run.sh); Phase 2 drives the
+# windowed host's WM encoder and event pump (tests/host/run.sh).  Both
+# build the real sources against shims.  Run the second with ZC_CONTROL=1
+# to prove the test is sensitive to the record-boundary logic.
+zircapp-tests:
+	sh zircapp/tests/run.sh
+	sh zircapp/tests/host/run.sh
+
+.PHONY: zircapp-tests
+
 # ── Clean ──
 
 clean:
 	rm -rf $(BUILD)
-	rm -f $(ZIRCON_LIB) $(ZIRCON_COMPOSITOR) $(ZIRCON_INIT) \
+	rm -f $(ZIRCON_LIB) $(ZIRCON_APP_LIB) $(ZIRCON_COMPOSITOR) $(ZIRCON_INIT) \
 	      $(ZIRCON_ELF) $(ZIRCON_ISO)
 
 -include $(DEP)

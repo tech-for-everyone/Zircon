@@ -1,5 +1,5 @@
 /* Zircon Camera — Native C camera app */
-#include "app.h"
+#include "zircapp.h"
 #include "../gui/windows.h"
 #include "../gui/widgets.h"
 #include <string.h>
@@ -8,18 +8,18 @@
 static int shots = 0;
 static int flash_enabled = 0;
 
-static void camera_init(struct zircon_app *app) {
+static void camera_init(struct zircapp_app *app) {
     (void)app;
-    app->win_id = gui_window_create(0, 0, zircon_phone_get_width(), zircon_phone_get_height(), "Camera");
+    app->win_id = gui_window_create(0, 0, zircapp_phone_get_width(), zircapp_phone_get_height(), "Camera");
     printf("camera: initialized\n");
 }
 
-static void camera_event(struct zircon_app *app, const zircon_event_t *ev) {
+static void camera_event(struct zircapp_app *app, const zircapp_event_t *ev) {
     (void)app;
-    if (ev->type == ZIRCON_EVENT_TOUCH_DOWN && ev->touch_count > 0) {
+    if (ev->type == ZIRCAPP_EVENT_TOUCH_DOWN && ev->touch_count > 0) {
         int ty = ev->touch[0].y;
-        int h = zircon_phone_get_height();
-        int w = zircon_phone_get_width();
+        int h = zircapp_phone_get_height();
+        int w = zircapp_phone_get_width();
         /* Shutter button at bottom center */
         if (ty > h * 0.8 && ty < h * 0.9) {
             shots++;
@@ -33,16 +33,16 @@ static void camera_event(struct zircon_app *app, const zircon_event_t *ev) {
     }
 }
 
-static void camera_stop(struct zircon_app *app) {
+static void camera_stop(struct zircapp_app *app) {
     (void)app;
     gui_window_close(app->win_id);
 }
 
-zircon_app_t camera_app = {
+zircapp_app_t camera_app = {
     .name = "Camera",
     .init = camera_init,
     .event = camera_event,
     .stop = camera_stop,
-    .state = ZIRCON_APP_STOPPED,
+    .state = ZIRCAPP_APP_STOPPED,
     .win_id = -1,
 };

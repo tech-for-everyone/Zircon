@@ -1,5 +1,5 @@
 /* Zircon Settings — Native C settings app */
-#include "app.h"
+#include "zircapp.h"
 #include "../gui/windows.h"
 #include "../gui/widgets.h"
 #include <string.h>
@@ -10,17 +10,17 @@ static int bluetooth_enabled = 0;
 static int screen_brightness = 80;
 static int volume = 70;
 
-static void settings_init(struct zircon_app *app) {
+static void settings_init(struct zircapp_app *app) {
     (void)app;
-    app->win_id = gui_window_create(0, 0, zircon_phone_get_width(), zircon_phone_get_height(), "Settings");
+    app->win_id = gui_window_create(0, 0, zircapp_phone_get_width(), zircapp_phone_get_height(), "Settings");
     printf("settings: initialized\n");
 }
 
-static void settings_event(struct zircon_app *app, const zircon_event_t *ev) {
+static void settings_event(struct zircapp_app *app, const zircapp_event_t *ev) {
     (void)app;
-    if (ev->type == ZIRCON_EVENT_TOUCH_DOWN && ev->touch_count > 0) {
+    if (ev->type == ZIRCAPP_EVENT_TOUCH_DOWN && ev->touch_count > 0) {
         int ty = ev->touch[0].y;
-        int h = zircon_phone_get_height();
+        int h = zircapp_phone_get_height();
         if (ty < h / 4) {
             wifi_enabled = !wifi_enabled;
             printf("settings: wifi %s\n", wifi_enabled ? "on" : "off");
@@ -37,16 +37,16 @@ static void settings_event(struct zircon_app *app, const zircon_event_t *ev) {
     }
 }
 
-static void settings_stop(struct zircon_app *app) {
+static void settings_stop(struct zircapp_app *app) {
     (void)app;
     gui_window_close(app->win_id);
 }
 
-zircon_app_t settings_app = {
+zircapp_app_t settings_app = {
     .name = "Settings",
     .init = settings_init,
     .event = settings_event,
     .stop = settings_stop,
-    .state = ZIRCON_APP_STOPPED,
+    .state = ZIRCAPP_APP_STOPPED,
     .win_id = -1,
 };
