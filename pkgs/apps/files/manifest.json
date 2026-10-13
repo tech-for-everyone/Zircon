@@ -1,0 +1,14 @@
+{
+  "name": "files",
+  "version": "1.0.0",
+  "description": "Zircon Files app \u2014 a simple file-manager list",
+  "license": "MIT",
+  "type": "source",
+  "category": "Apps",
+  "dependencies": [
+    "gui",
+    "zircapp"
+  ],
+  "install_path": "/apps/files",
+  "source": "src/"
+}

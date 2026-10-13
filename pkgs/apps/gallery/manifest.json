@@ -1,0 +1,14 @@
+{
+  "name": "gallery",
+  "version": "1.0.0",
+  "description": "Zircon Gallery photo viewer app",
+  "license": "MIT",
+  "type": "source",
+  "category": "Apps",
+  "dependencies": [
+    "gui",
+    "zircapp"
+  ],
+  "install_path": "/apps/gallery",
+  "source": "src/"
+}

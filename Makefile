@@ -1,170 +1,129 @@
 # ╔══════════════════════════════════════════════════════════════╗
-# ║  Zircon OS — Build System                                      ║
+# ║  Zircon OS — top-level build                                   ║
 # ║  Google-free mobile/desktop OS built on the CodeOS kernel       ║
 # ╚══════════════════════════════════════════════════════════════╝
+#
+# The userland is a tree of packages under pkgs/ (each with its own
+# manifest.json + Makefile).  This Makefile builds them and links the
+# results into the Zircon images, then drives the ISO / QEMU / ARM64
+# targets.  See pkgs/README.md for the package convention.
+
+ARCH ?= x86_64
+ZROOT := $(CURDIR)
+KERNEL_DIR := ../kernel
 
 # ── Architecture selection ──
-ARCH ?= x86_64
-
-# The LLVM linker is preferred for the userspace and Zircon images, but a host
-# without the lld package has no `ld.lld` for clang to find; fall back to the
-# host GNU ld/binutils there.  Detected once so both branches agree.
-# `:=` (not `?=`) below because GNU make predefines LD = ld and AR = ar; a
-# command-line `make LD=...` still overrides.
-HAVE_LLD := $(shell command -v ld.lld >/dev/null 2>&1 && echo 1)
-
 ifeq ($(ARCH),arm64)
-    # clang cross-compiles the freestanding aarch64 kernel. `ld.lld` is the
-    # LLVM linker for the same target. `ar`/`objcopy` stay GNU binutils
-    # because the LLVM equivalents (llvm-ar/llvm-objcopy) are not installed
-    # on the build host; they are only used to archive/transform objects and
-    # never touch codegen.
+    # The ARM64 target builds the Galaxy S9 (SM-G960U) kernel bring-up only;
+    # the pkgs/ userland is x86_64-only.
     CC := clang --target=aarch64-none-elf
     AR := $(shell command -v aarch64-linux-gnu-ar >/dev/null 2>&1 && echo aarch64-linux-gnu-ar || echo ar)
     ARFLAGS := rcs
     OBJCOPY := $(shell command -v aarch64-linux-gnu-objcopy >/dev/null 2>&1 && echo aarch64-linux-gnu-objcopy || echo objcopy)
     LD := $(shell command -v ld.lld >/dev/null 2>&1 && echo "ld.lld -m aarch64elf" || echo "ld -m aarch64elf")
     BUILD := build/arm64
-    KERNEL_DIR := ../kernel
     ISO_DIR := build/iso-arm64
     ISO_ROOT := $(ISO_DIR)/iso_root
+    MKDIR := mkdir -p
+    CP := cp
     CFLAGS := -std=c99 -Wall -Wextra -pedantic -g -ffreestanding -nostdlib -nostartfiles -fno-stack-protector -fno-PIC -mgeneral-regs-only
-    CPPFLAGS := -I. -Igui -Iapps -Ibrowser -I../kernel/arch/arm64 -Ikernel/arch/arm64/dts -D__ARM64__ -D__ZIRCON_ARM64__
-    MKDIR := mkdir -p
-    CP := cp
+    CPPFLAGS := -I. -Ipkgs -I$(KERNEL_DIR)/arch/arm64 -Ikernel/arch/arm64/dts -D__ARM64__ -D__ZIRCON_ARM64__
     LDFLAGS := -nostdlib -static -z max-page-size=0x1000 -z noexecstack -T kernel/arch/arm64/linker.ld
-    LDLIBS :=
-    RUST_TOOLCHAIN := $(HOME)/.rustup/toolchains/1.92.0-x86_64-unknown-linux-gnu/bin
 else
-    # clang compiles and lld links. `--target=x86_64-unknown-none` selects
-    # freestanding x86-64 codegen so clang does not assume the host Linux
-    # runtime (PIE, dynamic linker, stack protector). `ar`/`objcopy` stay
-    # GNU binutils because llvm-ar/llvm-objcopy are not installed on the
-    # build host; they only archive/transform objects, never touch codegen.
-    CC := clang --target=x86_64-unknown-none
-    AR := $(shell command -v x86_64-elf-ar >/dev/null 2>&1 && echo x86_64-elf-ar || echo ar)
-    ARFLAGS := rcs
-    OBJCOPY := $(shell command -v x86_64-elf-objcopy >/dev/null 2>&1 && echo x86_64-elf-objcopy || echo objcopy)
+    # ── x86_64 userland ──
+    # Toolchain, include paths and build layout are shared with every package
+    # through pkgs/pkgs.mk; this branch owns only the image-level rules.
+    include pkgs/pkgs.mk
+    BUILD := $(ZROOT)/build
+    ISO_DIR := $(BUILD)/iso
+    ISO_ROOT := $(ISO_DIR)/iso_root
     MKDIR := mkdir -p
     CP := cp
-    BUILD := build
-    KERNEL_DIR := ../kernel
-    ISO_DIR := build/iso
-    ISO_ROOT := $(ISO_DIR)/iso_root
-    CFLAGS := -std=c99 -Wall -Wextra -pedantic -g -fno-stack-protector -fno-pic -fno-pie
-    CPPFLAGS := -I. -Igui -Iapps -Ibrowser -I../qt6/panels -I../pkgs/core/panels/src -I../pkgs/core/openssl/freestd -I$(KERNEL_DIR)/kernel -I../qt6/posixstubs/include -I../qt6/posixstubs/include/sys -I../qt6/sysroot/usr/include -D_GNU_SOURCE
-    # No libgcc: `nm -u` on the linked image shows the userspace pulls in no
-    # compiler builtins, so the runtime archive is not needed. `-static`
-    # keeps lld from emitting a PT_INTERP, matching the static link the
-    # retired x86_64-elf-gcc produced.
-    LDFLAGS := -nostdlib -static -no-pie $(if $(HAVE_LLD),-fuse-ld=lld,) -L../qt6/sysroot/usr/lib
-    LDLIBS := -lm
-    RUST_TOOLCHAIN := $(HOME)/.rustup/toolchains/1.92.0-x86_64-unknown-linux-gnu/bin
+    # The objects are built -fno-pic/-fno-pie, so the link must not default to
+    # a PIE (host ld otherwise dies with "R_X86_64_32S ... can not be used when
+    # making a PIE object").
+    LDFLAGS := -nostdlib -static -no-pie -z max-page-size=0x1000 -z noexecstack
+    LDLIBS :=
+
+    # Propagate the (possibly target-specific) package CFLAGS into the
+    # sub-make so `make debug` / `make release` actually rebuild the packages.
+    export PKG_CFLAGS
 endif
 
-# ── Sources ──
-
-GUI_SRC := $(wildcard gui/*.c)
-APP_SRC := $(wildcard apps/*.c)
-ZIRCAPP_SRC := $(wildcard zircapp/*.c)
-CORE_SRC := $(wildcard *.c)
-BROWSER_SRC := browser/ow_bridge.c
-SHIM_SRC := browser/ow_html_shim.c
-NET_SRC := browser/net_shim.c
-INIT_SRC := zircon_init.c
-STUBS_SRC := stubs.c
-CRT0_SRC := ../pkgs/core/lib-c/src/crt0.S
-
-SRC := $(CORE_SRC) $(GUI_SRC) $(APP_SRC) $(ZIRCAPP_SRC)
-ZIRCAPP_OBJ := $(patsubst %.c,$(BUILD)/%.o,$(ZIRCAPP_SRC))
-BROWSER_OBJ := $(BUILD)/browser_ow_bridge.o
-OW_HTML_OBJ := $(BUILD)/browser_ow_html_shim.o
-NET_OBJ := $(BUILD)/browser_net_shim.o
-RUST_LIB := ../kernel/kernel/rust_ow/target/x86_64-unknown-none/release/libow_http.a
-OBJ := $(patsubst %.c,$(BUILD)/%.o,$(SRC))
-STUBS_OBJ := $(BUILD)/stubs.o
-CRT0_OBJ := $(BUILD)/crt0.o
-LIBC_OBJ := $(STUBS_OBJ) $(CRT0_OBJ)
-DEP := $(OBJ:.o=.d) $(STUBS_OBJ:.o=.d) $(CRT0_OBJ:.o=.d) $(BROWSER_OBJ:.o=.d) $(OW_HTML_OBJ:.o=.d) $(NET_OBJ:.o=.d)
-
-# ── Targets ──
+# ── Images ──
 
 ZIRCON_KERNEL := $(KERNEL_DIR)/codeos-1-kernel.bin
 ZIRCON_KERNEL_ARM64 := $(KERNEL_DIR)/zircon-kernel-arm64.bin
 ZIRCON_DTB := $(BUILD)/zircon-sm-g960u.dtb
 ZIRCON_INIT := $(BUILD)/zircon_init
 ZIRCON_COMPOSITOR := $(BUILD)/zircond
-ZIRCON_LIB := $(BUILD)/libzircon.a
-ZIRCON_APP_LIB := $(BUILD)/libzircapp.a
 ZIRCON_ELF := $(BUILD)/zircon.elf
 ZIRCON_ISO := $(BUILD)/zircon.iso
 ZIRCON_ISO_ARM64 := $(BUILD)/zircon-arm64.iso
+RUST_LIB := $(KERNEL_DIR)/kernel/rust_ow/target/x86_64-unknown-none/release/libow_http.a
 
-# Limine stage-3 image. Do NOT use $(KERNEL_DIR)/bootloader/limine-bios.sys:
+# Limine stage-3 image.  Do NOT use $(KERNEL_DIR)/bootloader/limine-bios.sys:
 # that is a stale 351944-byte copy which does not match limine-bios-cd.bin,
 # and limine rejects it at boot with "limine-bios.sys size incorrect" /
-# "PANIC: Failed to load stage 3". The matching 302836-byte file is the one
+# "PANIC: Failed to load stage 3".  The matching 302836-byte file is the one
 # CodeOS's own working ISO ships, from its iso_root.
 LIMINE_BIOS_SYS := $(KERNEL_DIR)/bootloader/iso_root/boot/limine-bios.sys
 LIMINE_DEPLOY := $(KERNEL_DIR)/bootloader/limine-deploy
 
-.PHONY: all clean debug release run iso iso-arm64 initramfs zircon-init
+# ── Package build ──
+# `pkgs` is phony, so the link rules always relink against the current set of
+# package objects.  ZIRCOND_OBJS / INIT_OBJS are recursive variables: they are
+# expanded inside the recipe, i.e. after the sub-make has produced the objects.
 
-all: $(ZIRCON_LIB) $(ZIRCON_APP_LIB) $(ZIRCON_COMPOSITOR) $(ZIRCON_INIT) $(ZIRCON_ELF)
+.PHONY: all clean debug release run iso iso-arm64 pkgs zircapp-tests
 
-debug: CFLAGS += -O0 -DDEBUG
+ZIRCOND_OBJS = $(shell find $(BUILD)/pkgs -name '*.o' ! -path '*/init/*' 2>/dev/null)
+INIT_OBJS    = $(shell find $(BUILD)/pkgs/core/base/libc $(BUILD)/pkgs/core/base/init -name '*.o' 2>/dev/null)
+
+ifeq ($(ARCH),x86_64)
+
+all: pkgs $(ZIRCON_COMPOSITOR) $(ZIRCON_INIT) $(ZIRCON_ELF)
+
+debug: PKG_CFLAGS += -O0 -DDEBUG
 debug: all
-
-release: CFLAGS += -O2 -DNDEBUG
+release: PKG_CFLAGS += -O2 -DNDEBUG
 release: all
 
-# ── Rust library (OpenWeb) ──
+# Build every package (each owns its Makefile).
+.PHONY: pkgs
+pkgs:
+	@$(MAKE) -s -C pkgs all
 
+# ── Rust library (OpenWeb) ──
 $(RUST_LIB):
 	$(MKDIR) $(dir $@)
-	cd $(KERNEL_DIR)/rust_ow && PATH="$(RUST_TOOLCHAIN):$$PATH" cargo build --target x86_64-unknown-none --release
+	cd $(KERNEL_DIR)/rust_ow && cargo build --target x86_64-unknown-none --release
 
-# ── Library ──
+# ── Link the compositor (zircond) ──
+# Every package object except init's, plus the Rust OpenWeb archive.  The
+# `<pkg>/lib<pkg>.a` archives are built for packaging; linking the objects
+# directly keeps crt0.o's _start unconditionally present.
+$(ZIRCON_COMPOSITOR): pkgs $(RUST_LIB)
+	$(MKDIR) $(@D)
+	$(CC) -nostartfiles -o $@ $(ZIRCOND_OBJS) $(RUST_LIB) $(LDFLAGS) $(LDLIBS)
 
-$(ZIRCON_LIB): $(OBJ) $(BROWSER_OBJ) $(OW_HTML_OBJ) $(NET_OBJ)
-	$(MKDIR) $(dir $@)
-	$(AR) $(ARFLAGS) $@ $^
+# ── Link PID 1 (zircon_init) ──
+$(ZIRCON_INIT): pkgs
+	$(MKDIR) $(@D)
+	$(CC) -nostartfiles -o $@ $(INIT_OBJS) $(LDFLAGS) $(LDLIBS)
 
-# ── ZircApp framework library ──
-# The framework sources are also compiled straight into zircond/libzircon.a
-# (they are in SRC); this archive is the standalone, linkable deliverable.
-$(ZIRCON_APP_LIB): $(ZIRCAPP_OBJ)
-	$(MKDIR) $(dir $@)
-	$(AR) $(ARFLAGS) $@ $^
-
-# ── Browser & OpenWeb bridge ──
-
-$(BROWSER_OBJ): $(BROWSER_SRC)
-	$(MKDIR) $(dir $@)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
-
-$(OW_HTML_OBJ): $(SHIM_SRC)
-	$(MKDIR) $(dir $@)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
-
-$(NET_OBJ): $(NET_SRC)
-	$(MKDIR) $(dir $@)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
-
-# ── Compositor (zircond) ──
-
-$(ZIRCON_COMPOSITOR): $(filter-out $(BUILD)/zircon_init.o $(STUBS_OBJ), $(OBJ)) $(LIBC_OBJ) $(BROWSER_OBJ) $(OW_HTML_OBJ) $(NET_OBJ)
-	$(CC) -nostartfiles -o $@ $(filter-out $(BUILD)/zircon_init.o $(STUBS_OBJ),$(OBJ)) $(LIBC_OBJ) $(BROWSER_OBJ) $(OW_HTML_OBJ) $(NET_OBJ) $(LDFLAGS) $(LDLIBS) $(RUST_LIB)
-
-# ── ARM64 Kernel Build ──
-#
-# These rules are only meaningful under ARCH=arm64. They are scoped to that
-# architecture on purpose: the pattern `$(BUILD)/%.o: kernel/arch/arm64/%.c`
-# would otherwise shadow the generic `$(BUILD)/%.o: %.c` rule in the x86_64
-# build (both prefix `build/`), and the root main.c would get compiled from
-# kernel/arch/arm64/main.c.
+# ── Zircon ELF (kernel + initramfs) ──
+# zircon.elf is a copy of the CodeOS kernel: Zircon has no kernel of its own.
+$(ZIRCON_ELF): $(ZIRCON_KERNEL)
+	$(MKDIR) $(@D)
+	$(CP) $< $@
+endif
 
 ifeq ($(ARCH),arm64)
+
+ZIRCON_ELF :=
+
+all: $(ZIRCON_KERNEL_ARM64)
 
 ARM64_C_SRC := $(wildcard kernel/arch/arm64/*.c)
 ARM64_S_SRC := $(wildcard kernel/arch/arm64/*.S)
@@ -189,90 +148,27 @@ $(ZIRCON_DTB): kernel/arch/arm64/dts/sm-g960u.dts
 
 endif # ARCH == arm64
 
-# ── Init process ──
-
-$(ZIRCON_INIT): $(BUILD)/zircon_init.o $(LIBC_OBJ)
-	$(CC) -nostartfiles -o $@ $< $(LIBC_OBJ) $(LDFLAGS) $(LDLIBS)
-
-$(BUILD)/zircon_init.o: $(INIT_SRC)
-	$(MKDIR) $(dir $@)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
-
-# ── Stubs ──
-
-$(BUILD)/stubs.o: $(STUBS_SRC)
-	$(MKDIR) $(dir $@)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
-
-# ── CRT0 ──
-
-$(BUILD)/crt0.o: $(CRT0_SRC)
-	$(MKDIR) $(dir $@)
-	$(CC) $(CPPFLAGS) -c $< -o $@
-
-# ── Generic pattern rule ──
-
-$(BUILD)/%.o: %.c
-	$(MKDIR) $(dir $@)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
-
-# ── Zircon ELF (kernel + initramfs) ──
-
-$(ZIRCON_ELF): $(ZIRCON_KERNEL) $(ZIRCON_INIT) $(ZIRCON_COMPOSITOR) $(ZIRCON_LIB) $(RUST_LIB)
-	$(MKDIR) $(dir $@)
-	$(CP) $(ZIRCON_KERNEL) $@
-
-# ── Initramfs ──
+# ── Initramfs + ISO (x86_64) ──
 
 initramfs: $(ZIRCON_INIT) $(ZIRCON_COMPOSITOR)
-	$(MKDIR) $(ISO_ROOT)/sbin
-	$(MKDIR) $(ISO_ROOT)/boot
+	$(MKDIR) $(ISO_ROOT)/boot $(ISO_ROOT)/sbin
 	$(CP) $(ZIRCON_INIT) $(ISO_ROOT)/sbin/zircon_init
 	$(CP) $(ZIRCON_COMPOSITOR) $(ISO_ROOT)/sbin/zircond
 	$(CP) $(ZIRCON_KERNEL) $(ISO_ROOT)/boot/zircon-kernel.bin
-	# Create init script
 	echo '#!/bin/sh' > $(ISO_ROOT)/init
-	echo 'mount -t proc none /proc' >> $(ISO_ROOT)/init
-	echo 'mount -t sysfs none /sys' >> $(ISO_ROOT)/init
 	echo 'echo "Zircon OS v1.0.0"' >> $(ISO_ROOT)/init
 	echo '/sbin/zircon_init' >> $(ISO_ROOT)/init
 	chmod +x $(ISO_ROOT)/init
-
-# ── ISO (x86_64) ──
 
 iso: initramfs
-	$(MKDIR) $(ISO_DIR)
-	$(MKDIR) $(ISO_ROOT)/boot
-	$(MKDIR) $(ISO_ROOT)/sbin
-	$(CP) $(ZIRCON_INIT) $(ISO_ROOT)/sbin/zircon_init
-	$(CP) $(ZIRCON_COMPOSITOR) $(ISO_ROOT)/sbin/zircond
-	$(CP) $(ZIRCON_KERNEL) $(ISO_ROOT)/boot/zircon-kernel.bin
-	$(CP) $(KERNEL_DIR)/codeos-1.0.iso $(ISO_ROOT)/ 2>/dev/null || true
-	# Create init script
-	echo '#!/bin/sh' > $(ISO_ROOT)/init
-	echo 'mount -t proc none /proc' >> $(ISO_ROOT)/init
-	echo 'mount -t sysfs none /sys' >> $(ISO_ROOT)/init
-	echo 'echo "Zircon OS v1.0.0"' >> $(ISO_ROOT)/init
-	echo '/sbin/zircon_init' >> $(ISO_ROOT)/init
-	chmod +x $(ISO_ROOT)/init
-	# Copy limine bootloader files. These are the El Torito BIOS/UEFI images
-	# plus the stage-3 image limine loads after its own stage 2.
 	$(MKDIR) $(ISO_ROOT)/boot/limine
 	$(CP) $(KERNEL_DIR)/bootloader/limine-bios-cd.bin $(ISO_ROOT)/boot/
 	$(CP) $(KERNEL_DIR)/bootloader/limine-uefi-cd.bin $(ISO_ROOT)/boot/
 	$(CP) $(LIMINE_BIOS_SYS) $(ISO_ROOT)/boot/
-	# Zircon's OWN limine config, not the kernel's. The kernel config's
-	# default_entry is /CodeOS, whose kernel_path (codeos-1-kernel.bin) is
-	# absent from this image, so the countdown would land on a PANIC.
 	$(CP) bootloader/limine.conf $(ISO_ROOT)/boot/limine.conf
-	# Zircon's limine.conf sets `wallpaper: boot():/boot/splash.png`.
 	$(CP) $(KERNEL_DIR)/bootloader/splash.png $(ISO_ROOT)/boot/
-	# Build the ISO. These flags mirror the kernel's working codeos-1.0.iso
-	# rule (kernel/Makefile:479). The previous form here passed
-	# -c boot/boot.cat / -eltorito-alt-boot / -eltorito-platform 0xef /
-	# -isohybrid-mbr, which libisofs rejects ("Invalid image size 3072 Kb.
-	# Must be one of 1.2, 1.44or 2.88 Mb"); the 2>/dev/null hid that and a
-	# broken fallback silently produced an unbootable image.
+	# Zircon's limine.conf sets `wallpaper: boot():/boot/splash.png`.
+	# These xorriso flags mirror the kernel's working codeos-1.0.iso rule.
 	xorriso -as mkisofs \
 		-b boot/limine-bios-cd.bin \
 		-no-emul-boot \
@@ -287,37 +183,10 @@ iso: initramfs
 	$(LIMINE_DEPLOY) bios-install $(ZIRCON_ISO)
 	@echo "Zircon ISO built: $(ZIRCON_ISO)"
 
-# ── ISO (ARM64 for Samsung Galaxy S9) ──
-
-iso-arm64: $(ZIRCON_KERNEL_ARM64) $(ZIRCON_DTB)
-	$(MKDIR) $(ISO_ROOT)/boot
-	$(CP) $(ZIRCON_KERNEL_ARM64) $(ISO_ROOT)/boot/zircon-kernel-arm64.bin
-	$(CP) $(ZIRCON_DTB) $(ISO_ROOT)/boot/zircon-sm-g960u.dtb
-	$(CP) bootloader/limine.conf $(ISO_ROOT)/boot/limine.conf
-	$(CP) $(KERNEL_DIR)/bootloader/limine-uefi-cd.bin $(ISO_ROOT)/boot/
-	$(CP) $(KERNEL_DIR)/bootloader/splash.png $(ISO_ROOT)/boot/
-	# Create init script
-	echo '#!/bin/sh' > $(ISO_ROOT)/init
-	echo 'mount -t proc none /proc' >> $(ISO_ROOT)/init
-	echo 'mount -t sysfs none /sys' >> $(ISO_ROOT)/init
-	echo 'echo "Zircon OS ARM64 v1.0.0"' >> $(ISO_ROOT)/init
-	echo 'echo "Booting on Samsung Galaxy S9 (SM-G960U)"' >> $(ISO_ROOT)/init
-	chmod +x $(ISO_ROOT)/init
-	# Build ARM64 ISO (UEFI only for ARM64)
-	xorriso -as mkisofs \
-		-no-emul-boot \
-		-boot-load-size 4 \
-		-boot-info-table \
-		--efi-boot boot/limine-uefi-cd.bin \
-		-efi-boot-part --efi-boot-image --protective-msdos-label \
-		$(ISO_ROOT) -o $(ZIRCON_ISO_ARM64)
-	@echo "Zircon ARM64 ISO built: $(ZIRCON_ISO_ARM64)"
-
 # ── Run ──
-
+#
 # The kernel cmdline lives in the limine config, not on the QEMU command line:
-# -append is rejected without -kernel ("-append only allowed with -kernel
-# option"), and this boots an ISO through limine.
+# -append is rejected without -kernel, and this boots an ISO through limine.
 run: iso
 	qemu-system-x86_64 \
 		-cpu Haswell,+smep \
@@ -328,13 +197,32 @@ run: iso
 		-boot order=d \
 		-serial stdio \
 		-vga std
-	# NOT +smap. The CodeOS kernel faults immediately once it turns SMAP on:
-	#   !!! PF at RIP=0xffffffff80262dd9 CR2=0xffff800000241208 err=1 !!!
-	# reproduced identically under KVM and TCG, on both -machine q35 and pc,
-	# and independent of -m/-smp. SMEP alone is fine ("SMEP on, SMAP off" and
-	# the kernel reaches "zircon: IPC bridge connected"). So this is a kernel
-	# bug in the SMAP enablement path, worked around here rather than fixed --
-	# re-enable +smap once the kernel side is sorted.
+	# NOT +smap: the CodeOS kernel faults immediately once it turns SMAP on
+	# (PF at CR2=0xffff800000241208 err=1).  SMEP alone is fine, so this is
+	# worked around here rather than fixed; re-enable +smap once the kernel
+	# side is sorted.
+
+# ── ISO (ARM64 for Samsung Galaxy S9) ──
+
+iso-arm64: $(ZIRCON_KERNEL_ARM64) $(ZIRCON_DTB)
+	$(MKDIR) $(ISO_ROOT)/boot
+	$(CP) $(ZIRCON_KERNEL_ARM64) $(ISO_ROOT)/boot/zircon-kernel-arm64.bin
+	$(CP) $(ZIRCON_DTB) $(ISO_ROOT)/boot/zircon-sm-g960u.dtb
+	$(CP) bootloader/limine.conf $(ISO_ROOT)/boot/limine.conf
+	$(CP) $(KERNEL_DIR)/bootloader/limine-uefi-cd.bin $(ISO_ROOT)/boot/
+	$(CP) $(KERNEL_DIR)/bootloader/splash.png $(ISO_ROOT)/boot/
+	echo '#!/bin/sh' > $(ISO_ROOT)/init
+	echo 'echo "Zircon OS ARM64 v1.0.0"' >> $(ISO_ROOT)/init
+	echo 'echo "Booting on Samsung Galaxy S9 (SM-G960U)"' >> $(ISO_ROOT)/init
+	chmod +x $(ISO_ROOT)/init
+	xorriso -as mkisofs \
+		-no-emul-boot \
+		-boot-load-size 4 \
+		-boot-info-table \
+		--efi-boot boot/limine-uefi-cd.bin \
+		-efi-boot-part --efi-boot-image --protective-msdos-label \
+		$(ISO_ROOT) -o $(ZIRCON_ISO_ARM64)
+	@echo "Zircon ARM64 ISO built: $(ZIRCON_ISO_ARM64)"
 
 # ── Host tests (no kernel, no boot) ──
 # Phase 1 drives the framework itself (tests/run.sh); Phase 2 drives the
@@ -342,16 +230,13 @@ run: iso
 # build the real sources against shims.  Run the second with ZC_CONTROL=1
 # to prove the test is sensitive to the record-boundary logic.
 zircapp-tests:
-	sh zircapp/tests/run.sh
-	sh zircapp/tests/host/run.sh
+	sh pkgs/core/base/zircapp/tests/run.sh
+	sh pkgs/core/base/zircapp/tests/host/run.sh
 
-.PHONY: zircapp-tests
+.PHONY: initramfs zircapp-tests
 
 # ── Clean ──
 
 clean:
+	$(MAKE) -s -C pkgs clean
 	rm -rf $(BUILD)
-	rm -f $(ZIRCON_LIB) $(ZIRCON_APP_LIB) $(ZIRCON_COMPOSITOR) $(ZIRCON_INIT) \
-	      $(ZIRCON_ELF) $(ZIRCON_ISO)
-
--include $(DEP)

@@ -1,0 +1,15 @@
+{
+  "name": "about",
+  "version": "1.0.0",
+  "description": "Zircon About app \u2014 system information (Ported from CodeOS pkgs/core/zircon-info)",
+  "license": "MIT",
+  "type": "source",
+  "category": "Apps",
+  "dependencies": [
+    "gui",
+    "zircapp",
+    "zircon-libc"
+  ],
+  "install_path": "/apps/about",
+  "source": "src/"
+}

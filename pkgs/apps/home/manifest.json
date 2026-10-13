@@ -1,0 +1,14 @@
+{
+  "name": "home",
+  "version": "1.0.0",
+  "description": "Zircon Home screen launcher and app grid",
+  "license": "MIT",
+  "type": "source",
+  "category": "Apps",
+  "dependencies": [
+    "gui",
+    "zircapp"
+  ],
+  "install_path": "/apps/home",
+  "source": "src/"
+}

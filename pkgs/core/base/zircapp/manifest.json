@@ -1,0 +1,14 @@
+{
+  "name": "zircapp",
+  "version": "1.0.0",
+  "description": "ZircApp application framework: app registry, broadcast event bus, frame loop and mobile device services",
+  "license": "MIT",
+  "type": "source",
+  "category": "Framework",
+  "dependencies": [
+    "zircon-abi",
+    "zircon-libc"
+  ],
+  "install_path": "/lib/",
+  "source": "src/"
+}

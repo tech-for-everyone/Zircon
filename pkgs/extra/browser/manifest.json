@@ -1,0 +1,13 @@
+{
+  "name": "openweb-bridge",
+  "version": "1.0.0",
+  "description": "OpenWeb bridge and HTML/network shims for the Rust libow_http.a renderer",
+  "license": "MIT",
+  "type": "source",
+  "category": "Browser",
+  "dependencies": [
+    "zircapp"
+  ],
+  "install_path": "/lib/",
+  "source": "src/"
+}

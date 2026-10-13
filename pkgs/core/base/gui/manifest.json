@@ -1,0 +1,13 @@
+{
+  "name": "gui",
+  "version": "1.0.0",
+  "description": "Zircon GUI toolkit: desktop panels, widgets and window management",
+  "license": "MIT",
+  "type": "source",
+  "category": "Framework",
+  "dependencies": [
+    "zircapp"
+  ],
+  "install_path": "/lib/",
+  "source": "src/"
+}

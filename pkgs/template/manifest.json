@@ -1,0 +1,11 @@
+{
+  "name": "hello",
+  "version": "1.0.0",
+  "description": "Template package — copy this directory to start a new Zircon package",
+  "license": "MIT",
+  "type": "source",
+  "category": "Apps",
+  "dependencies": ["gui", "zircapp"],
+  "install_path": "/apps/hello",
+  "source": "src/"
+}

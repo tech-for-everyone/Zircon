@@ -1,0 +1,15 @@
+{
+  "name": "notifications",
+  "version": "1.0.0",
+  "description": "Zircon Notifications app \u2014 notification centre (Ported from CodeOS pkgs/core/zircon-notify)",
+  "license": "MIT",
+  "type": "source",
+  "category": "Apps",
+  "dependencies": [
+    "gui",
+    "zircapp",
+    "zircon-libc"
+  ],
+  "install_path": "/apps/notifications",
+  "source": "src/"
+}

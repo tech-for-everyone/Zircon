@@ -1,0 +1,11 @@
+{
+  "name": "zircon-libc",
+  "version": "1.0.0",
+  "description": "Zircon freestanding libc: native int $0x80 syscall stubs, crt0 and the freestanding headers",
+  "license": "MIT",
+  "type": "source",
+  "category": "System",
+  "dependencies": [],
+  "install_path": "/lib/",
+  "source": "src/"
+}

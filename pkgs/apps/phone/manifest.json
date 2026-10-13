@@ -1,0 +1,14 @@
+{
+  "name": "phone",
+  "version": "1.0.0",
+  "description": "Zircon Phone dialer and in-call screen",
+  "license": "MIT",
+  "type": "source",
+  "category": "Apps",
+  "dependencies": [
+    "gui",
+    "zircapp"
+  ],
+  "install_path": "/apps/phone",
+  "source": "src/"
+}

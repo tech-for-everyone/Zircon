@@ -1,0 +1,11 @@
+{
+  "name": "zircon-abi",
+  "version": "1.0.0",
+  "description": "Zircon kernel ABI headers: syscall numbers, IPC ring layout, framebuffer and input payloads",
+  "license": "MIT",
+  "type": "source",
+  "category": "System",
+  "dependencies": [],
+  "install_path": "/include/",
+  "source": "src/"
+}

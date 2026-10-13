@@ -1,0 +1,15 @@
+{
+  "name": "browser",
+  "version": "1.0.0",
+  "description": "Zircon Browser app (OpenWeb front-end)",
+  "license": "MIT",
+  "type": "source",
+  "category": "Apps",
+  "dependencies": [
+    "gui",
+    "zircapp",
+    "openweb-bridge"
+  ],
+  "install_path": "/apps/browser",
+  "source": "src/"
+}

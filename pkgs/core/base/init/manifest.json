@@ -1,0 +1,14 @@
+{
+  "name": "init",
+  "version": "1.0.0",
+  "description": "Zircon PID 1 init: brings up the IPC bridge and supervises the compositor",
+  "license": "MIT",
+  "type": "source",
+  "category": "System",
+  "dependencies": [
+    "zircon-libc",
+    "zircon-abi"
+  ],
+  "install_path": "/sbin/zircon_init",
+  "source": "src/"
+}

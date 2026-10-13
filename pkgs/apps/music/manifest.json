@@ -1,0 +1,14 @@
+{
+  "name": "music",
+  "version": "1.0.0",
+  "description": "Zircon Music player app",
+  "license": "MIT",
+  "type": "source",
+  "category": "Apps",
+  "dependencies": [
+    "gui",
+    "zircapp"
+  ],
+  "install_path": "/apps/music",
+  "source": "src/"
+}
