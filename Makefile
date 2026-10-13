@@ -10,7 +10,9 @@
 
 ARCH ?= x86_64
 ZROOT := $(CURDIR)
-KERNEL_DIR := ../kernel
+# Zircon now vendors its own copy of the CodeOS kernel under kernel/ and builds
+# it here, instead of consuming the parent CodeOS tree's build output.
+KERNEL_DIR := kernel
 
 # ── Architecture selection ──
 ifeq ($(ARCH),arm64)
@@ -95,9 +97,10 @@ pkgs:
 	@$(MAKE) -s -C pkgs all
 
 # ── Rust library (OpenWeb) ──
+# Built as part of the vendored kernel tree; delegate so the kernel Makefile's
+# pinned Rust toolchain path is used.
 $(RUST_LIB):
-	$(MKDIR) $(dir $@)
-	cd $(KERNEL_DIR)/rust_ow && cargo build --target x86_64-unknown-none --release
+	$(MAKE) -C $(KERNEL_DIR) kernel/rust_ow/target/x86_64-unknown-none/release/libow_http.a
 
 # ── Link the compositor (zircond) ──
 # Every package object except init's, plus the Rust OpenWeb archive.  The
@@ -113,7 +116,16 @@ $(ZIRCON_INIT): pkgs
 	$(CC) -nostartfiles -o $@ $(INIT_OBJS) $(LDFLAGS) $(LDLIBS)
 
 # ── Zircon ELF (kernel + initramfs) ──
-# zircon.elf is a copy of the CodeOS kernel: Zircon has no kernel of its own.
+# The kernel is now built in-tree from the vendored CodeOS kernel sources in
+# kernel/.  `kernel` is phony so the sub-make always runs; it is incremental
+# after the first (cold) build.
+.PHONY: kernel
+kernel:
+	$(MAKE) -C $(KERNEL_DIR) codeos-1-kernel.bin
+
+$(ZIRCON_KERNEL): kernel
+
+# zircon.elf is a copy of that kernel image (kernel + embedded initramfs).
 $(ZIRCON_ELF): $(ZIRCON_KERNEL)
 	$(MKDIR) $(@D)
 	$(CP) $< $@
@@ -150,7 +162,7 @@ endif # ARCH == arm64
 
 # ── Initramfs + ISO (x86_64) ──
 
-initramfs: $(ZIRCON_INIT) $(ZIRCON_COMPOSITOR)
+initramfs: $(ZIRCON_INIT) $(ZIRCON_COMPOSITOR) $(ZIRCON_KERNEL)
 	$(MKDIR) $(ISO_ROOT)/boot $(ISO_ROOT)/sbin
 	$(CP) $(ZIRCON_INIT) $(ISO_ROOT)/sbin/zircon_init
 	$(CP) $(ZIRCON_COMPOSITOR) $(ISO_ROOT)/sbin/zircond

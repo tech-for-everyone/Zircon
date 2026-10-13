@@ -50,14 +50,13 @@ while getopts "m:c:snh" opt; do
 done
 
 # Build a fresh Limine ISO so the boot test always exercises current code.
-# Rebuild the kernel and then the Zircon ISO. The kernel Makefile's `all`
-# target produces boot/codeos-1-kernel.bin; the Zircon `iso` target copies that
-# into the image as /boot/zircon-kernel.bin (ZIRCON_KERNEL := kernel/codeos-1-kernel.bin)
-# and writes build/zircon.iso. The old `make -j kernel zircon-kernel-1.0.iso`
-# named a target that does not exist anywhere.
+# Rebuild the kernel (now vendored in Zircon/kernel) and then the Zircon ISO.
+# The kernel Makefile's `all` target produces kernel/codeos-1-kernel.bin; the
+# Zircon `iso` target copies that into the image as /boot/zircon-kernel.bin
+# (ZIRCON_KERNEL := kernel/codeos-1-kernel.bin) and writes build/zircon.iso.
 if [ "$SKIP_BUILD" -eq 0 ]; then
     step "Building kernel..."
-    make -C "${SRC}/../kernel" all
+    make -C "${SRC}/kernel" all
     step "Building Zircon ISO..."
     make -C "$SRC" iso
 else
