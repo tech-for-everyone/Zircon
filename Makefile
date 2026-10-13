@@ -7,11 +7,16 @@
 ARCH ?= x86_64
 
 ifeq ($(ARCH),arm64)
-    CC := aarch64-linux-gnu-gcc
+    # clang cross-compiles the freestanding aarch64 kernel. `ld.lld` is the
+    # LLVM linker for the same target. `ar`/`objcopy` stay GNU binutils
+    # because the LLVM equivalents (llvm-ar/llvm-objcopy) are not installed
+    # on the build host; they are only used to archive/transform objects and
+    # never touch codegen.
+    CC := clang --target=aarch64-none-elf
     AR := aarch64-linux-gnu-ar
     ARFLAGS := rcs
     OBJCOPY := aarch64-linux-gnu-objcopy
-    LD := aarch64-linux-gnu-ld
+    LD := ld.lld -m aarch64elf
     BUILD := build/arm64
     KERNEL_DIR := ../kernel
     ISO_DIR := build/iso-arm64
@@ -20,11 +25,16 @@ ifeq ($(ARCH),arm64)
     CPPFLAGS := -I. -Igui -Iapps -Ibrowser -I../kernel/arch/arm64 -Ikernel/arch/arm64/dts -D__ARM64__ -D__ZIRCON_ARM64__
     MKDIR := mkdir -p
     CP := cp
-    LDFLAGS := -nostdlib -z max-page-size=0x1000 -z noexecstack -T kernel/arch/arm64/linker.ld
+    LDFLAGS := -nostdlib -static -z max-page-size=0x1000 -z noexecstack -T kernel/arch/arm64/linker.ld
     LDLIBS :=
     RUST_TOOLCHAIN := $(HOME)/.rustup/toolchains/1.92.0-x86_64-unknown-linux-gnu/bin
 else
-    CC := x86_64-elf-gcc
+    # clang compiles and lld links. `--target=x86_64-unknown-none` selects
+    # freestanding x86-64 codegen so clang does not assume the host Linux
+    # runtime (PIE, dynamic linker, stack protector). `ar`/`objcopy` stay
+    # GNU binutils because llvm-ar/llvm-objcopy are not installed on the
+    # build host; they only archive/transform objects, never touch codegen.
+    CC := clang --target=x86_64-unknown-none
     AR := x86_64-elf-ar
     ARFLAGS := rcs
     OBJCOPY := x86_64-elf-objcopy
@@ -34,12 +44,13 @@ else
     KERNEL_DIR := ../kernel
     ISO_DIR := build/iso
     ISO_ROOT := $(ISO_DIR)/iso_root
-    CFLAGS := -std=c99 -Wall -Wextra -pedantic -g
+    CFLAGS := -std=c99 -Wall -Wextra -pedantic -g -fno-stack-protector -fno-pic -fno-pie
     CPPFLAGS := -I. -Igui -Iapps -Ibrowser -I../qt6/panels -I../pkgs/core/panels/src -I../pkgs/core/openssl/freestd -I$(KERNEL_DIR)/kernel -I../qt6/posixstubs/include -I../qt6/posixstubs/include/sys -I../qt6/sysroot/usr/include -D_GNU_SOURCE
-    # Locate libgcc from the cross compiler instead of hardcoding a versioned
-    # path (e.g. /usr/lib/gcc/x86_64-elf/16.2.0) that breaks on other machines.
-    LD_LIBGCC_DIR := $(dir $(shell $(CC) -print-libgcc-file-name 2>/dev/null))
-    LDFLAGS := -L../qt6/sysroot/usr/lib -L$(LD_LIBGCC_DIR) -lgcc
+    # No libgcc: `nm -u` on the linked image shows the userspace pulls in no
+    # compiler builtins, so the runtime archive is not needed. `-static`
+    # keeps lld from emitting a PT_INTERP, matching the static link the
+    # retired x86_64-elf-gcc produced.
+    LDFLAGS := -nostdlib -static -no-pie -fuse-ld=lld -L../qt6/sysroot/usr/lib
     LDLIBS := -lm
     RUST_TOOLCHAIN := $(HOME)/.rustup/toolchains/1.92.0-x86_64-unknown-linux-gnu/bin
 endif
