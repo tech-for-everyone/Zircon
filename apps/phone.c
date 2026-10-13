@@ -3,7 +3,6 @@
 #include "../gui/windows.h"
 #include "../gui/widgets.h"
 #include <string.h>
-#include <stdio.h>
 
 static int active_call = 0;
 static char last_number[16];
@@ -16,7 +15,6 @@ static void phone_init(struct zircapp_app *app) {
     (void)app;
     app->win_id = gui_window_create(0, 0, zircapp_phone_get_width(), zircapp_phone_get_height(), "Phone");
     printf("phone: initialized\n");
-    fflush(stdout);
 }
 
 static void phone_event(struct zircapp_app *app, const zircapp_event_t *ev) {
