@@ -1,0 +1,160 @@
+/*
+ * Pin control definitions for Samsung Galaxy S9 (SM-G960U) - Star2QLTE
+ * Qualcomm SDM845 pinctrl
+ */
+
+/ {
+	pinctrl {
+		i2c0_default: i2c0-default {
+			pins = "gpio100", "gpio101";
+			function = "i2c";
+			bias-pull-up;
+		};
+
+		i2c1_default: i2c1-default {
+			pins = "gpio102", "gpio103";
+			function = "i2c";
+			bias-pull-up;
+		};
+
+		uart0_default: uart0-default {
+			pins = "gpio0", "gpio1";
+			function = "uart";
+			bias-pull-up;
+		};
+
+		mdss_default: mdss-default {
+			pins = "gpio38", "gpio39", "gpio40", "gpio41",
+			       "gpio42", "gpio43", "gpio44", "gpio45",
+			       "gpio46", "gpio47", "gpio48", "gpio49";
+			function = "mdss";
+		};
+
+		wifi_default: wifi-default {
+			pins = "gpio10", "gpio11", "gpio12", "gpio13",
+			       "gpio14", "gpio15", "gpio16", "gpio17",
+			       "gpio18", "gpio19", "gpio20", "gpio21";
+			function = "wlan";
+		};
+
+		wifi_sleep: wifi-sleep {
+			pins = "gpio10", "gpio11", "gpio12", "gpio13",
+			       "gpio14", "gpio15", "gpio16", "gpio17",
+			       "gpio18", "gpio19", "gpio20", "gpio21";
+			function = "gpio";
+			bias-pull-down;
+		};
+
+		dsi0_default: dsi0-default {
+			pins = "gpio38", "gpio39", "gpio40", "gpio41";
+			function = "dsi";
+		};
+
+		dsi1_default: dsi1-default {
+			pins = "gpio42", "gpio43", "gpio44", "gpio45";
+			function = "dsi";
+		};
+
+		sdcard_default: sdcard-default {
+			pins = "gpio106", "gpio107", "gpio108", "gpio109",
+			       "gpio110", "gpio111";
+			function = "sdc1";
+			bias-pull-up;
+		};
+
+		uart1_default: uart1-default {
+			pins = "gpio2", "gpio3";
+			function = "uart";
+		};
+
+		uart2_default: uart2-default {
+			pins = "gpio4", "gpio5";
+			function = "uart";
+		};
+
+		spi0_default: spi0-default {
+			pins = "gpio106", "gpio107", "gpio108", "gpio109";
+			function = "spi";
+		};
+
+		/* Touch screen interrupt */
+		ts_int: ts-int {
+			pins = "gpio101";
+			function = "gpio";
+			bias-pull-up;
+			interrupt-controller;
+		};
+
+		/* Touch screen reset */
+		ts_reset: ts-reset {
+			pins = "gpio102";
+			function = "gpio";
+			output-low;
+		};
+
+		/* Power key */
+		pwr_key: pwr-key {
+			pins = "gpio100";
+			function = "gpio";
+			bias-pull-up;
+			interrupt-controller;
+		};
+
+		/* Volume keys */
+		vol_up: vol-up {
+			pins = "gpio94";
+			function = "gpio";
+			bias-pull-up;
+			interrupt-controller;
+		};
+
+		vol_down: vol-down {
+			pins = "gpio95";
+			function = "gpio";
+			bias-pull-up;
+			interrupt-controller;
+		};
+
+		/* Camera */
+		cam0_mclk: cam0-mclk {
+			pins = "gpio34";
+			function = "cam_mclk";
+		};
+
+		cam1_mclk: cam1-mclk {
+			pins = "gpio35";
+			function = "cam_mclk";
+		};
+
+		/* USB */
+		usb_dwc3: usb-dwc3 {
+			pins = "gpio50", "gpio51";
+			function = "usb3";
+		};
+
+		/* Vibrator */
+		vibrator: vibrator {
+			pins = "gpio84";
+			function = "vibrator";
+		};
+
+		/* LED */
+		led_red: led-red {
+			pins = "gpio88";
+			function = "gpio";
+			output-low;
+		};
+
+		led_green: led-green {
+			pins = "gpio89";
+			function = "gpio";
+			output-low;
+		};
+
+		led_blue: led-blue {
+			pins = "gpio90";
+			function = "gpio";
+			output-low;
+		};
+	};
+};

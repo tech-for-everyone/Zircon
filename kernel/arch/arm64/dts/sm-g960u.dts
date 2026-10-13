@@ -1,0 +1,418 @@
+/*
+ * Device Tree for Samsung Galaxy S9 (SM-G960U) - Minimal Version
+ * Snapdragon 845 (SDM845) SoC
+ * 
+ * All constants inlined to avoid include file dependencies
+ */
+
+/dts-v1/;
+
+/include/ "qcom/sdm845.dtsi"
+/include/ "qcom/sdm845-pinctrl.dtsi"
+/include/ "qcom/sdm845-gpio.dtsi"
+
+/ {
+	model = "Samsung Galaxy S9 (SM-G960U)";
+	compatible = "samsung,starqlte", "qcom,sdm845";
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	chosen {
+		bootargs = "console=ttyMSM0,115200n8 earlycon=msm_geni_serial,0x4a90000 androidboot.hardware=qcom androidboot.console=ttyMSM0 androidboot.memcg=1 lpm_levels.sleep_disabled=1 video=vfb:640x400,bpp=32,memsize=3072000 msm_rtb.filter=0x237 service_locator.enable=1 swiotlb=2048 firmware_class.path=/vendor/firmware_mnt/image loop.max_part=7 cgroup.memory=nokmem,nosocket androidboot.usbcontroller=a600000.dwc3";
+		stdout-path = "serial0:115200n8";
+	};
+
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x0 0x80000000 0x0 0x80000000>,  /* 2GB low memory */
+		    <0x1 0x00000000 0x0 0x80000000>;    /* 2GB high memory (4GB total) */
+	};
+
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		linux_secmem: linux@95000000 {
+			reg = <0x0 0x95000000 0x0 0x2000000>;
+			no-map;
+		};
+
+		hyp_reserved: hyp@97000000 {
+			reg = <0x0 0x97000000 0x0 0x2000000>;
+			no-map;
+		};
+
+		adreno_reserved: adreno@99000000 {
+			reg = <0x0 0x99000000 0x0 0x6000000>;
+			no-map;
+		};
+
+		camera_reserved: camera@9f000000 {
+			reg = <0x0 0x9f000000 0x0 0x1000000>;
+			no-map;
+		};
+	};
+
+	power-controller {
+		compatible = "qcom,sdm845-pm";
+		qcom,spm = <&spm>;
+	};
+
+	thermal-zones {
+		cpu-thermal {
+			polling-delay = <1000>;
+			thermal-sensors = <&tsens 0>, <&tsens 1>, <&tsens 2>, <&tsens 3>;
+			trips {
+				cpu_alert: cpu-alert {
+					temperature = <85000>;
+					type = "passive";
+				};
+				cpu_crit: cpu-crit {
+					temperature = <105000>;
+					type = "critical";
+				};
+			};
+			cooling-maps {
+				map0 {
+					trip = <&cpu_alert>;
+					cooling-device = <&cpu0 1 1>,
+							   <&cpu1 1 1>,
+							   <&cpu2 1 1>,
+							   <&cpu3 1 1>,
+							   <&cpu4 1 1>,
+							   <&cpu5 1 1>,
+							   <&cpu5 1 1>,
+							   <&cpu6 1 1>,
+							   <&cpu7 1 1>;
+				};
+			};
+		};
+
+		gpu-thermal {
+			polling-delay = <1000>;
+			thermal-sensors = <&tsens 14>;
+			trips {
+				gpu_alert: gpu-alert {
+					temperature = <85000>;
+					type = "passive";
+				};
+			};
+			cooling-maps {
+				map0 {
+					trip = <&gpu_alert>;
+					cooling-device = <&gpu0 1 1>;
+				};
+			};
+		};
+	};
+
+	i2c@880000 {
+		compatible = "qcom,geni-i2c";
+		reg = <0x0 0x880000 0x0 0x100000>;
+		interrupts = <0 28 4>;
+		clocks = <&clock 0>;
+		clock-names = "clk";
+		pinctrl-names = "default";
+		pinctrl-0 = <&i2c0_default>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+
+		touch@48 {
+			compatible = "focaltech,ft3x27";
+			reg = <0x48>;
+			interrupt-parent = <&gpio>;
+			interrupts = <101 8>; /* GPIO_ACTIVE_LOW = 8 */
+			reset-gpios = <&gpio 101 8>;
+			status = "okay";
+		};
+
+		bq27z75@55 {
+			compatible = "ti,bq27z75";
+			reg = <0x55>;
+			status = "okay";
+		};
+	};
+
+	i2c@881000 {
+		compatible = "qcom,geni-i2c";
+		reg = <0x0 0x881000 0x0 0x100000>;
+		interrupts = <0 29 4>;
+		clocks = <&clock 0>;
+		clock-names = "clk";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+	};
+
+	spi@885000 {
+		compatible = "qcom,geni-spi";
+		reg = <0x0 0x885000 0x0 0x100000>;
+		interrupts = <0 30 4>;
+		clocks = <&clock 0>;
+		clock-names = "clk";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+	};
+
+	serial@4a90000 {
+		compatible = "qcom,geni-uart";
+		reg = <0x0 0x4a90000 0x0 0x100000>;
+		interrupts = <0 32 4>;
+		clocks = <&clock 0>;
+		clock-names = "clk";
+		pinctrl-names = "default";
+		pinctrl-0 = <&uart0_default>;
+		status = "okay";
+	};
+
+	usb@6a00000 {
+		compatible = "qcom,sdm845-dwc3", "snps,dwc3";
+		reg = <0x0 0x6a00000 0x0 0x20000>;
+		interrupts = <0 38 4>;
+		clocks = <&clock 0>, <&clock 1>, <&clock 2>;
+		clock-names = "bus_clk", "ref_clk", "suspend_clk";
+		phys = <&usb3_phy>, <&usb2_phy>;
+		phy-names = "usb3-phy", "usb2-phy";
+		maximum-speed = "super-speed";
+		dr_mode = "otg";
+		status = "okay";
+	};
+
+	usb@6a00000 {
+		compatible = "qcom,sdm845-dwc3", "snps,dwc3";
+		reg = <0x0 0x6a00000 0x0 0x20000>;
+		interrupts = <0 38 4>;
+		clocks = <&clock 0>, <&clock 1>, <&clock 2>;
+		clock-names = "bus_clk", "ref_clk", "suspend_clk";
+		phys = <&usb3_phy>, <&usb2_phy>;
+		phy-names = "usb3-phy", "usb2-phy";
+		maximum-speed = "super-speed";
+		dr_mode = "otg";
+		status = "okay";
+	};
+
+	/* USB PHYs */
+	usb3_phy: usb3-phy {
+		compatible = "qcom,usb3-phy";
+		reg = <0x0 0x6a20000 0x0 0x10000>;
+		#phy-cells = <1>;
+		clocks = <&clock 0>;
+		clock-names = "phy";
+		status = "okay";
+	};
+
+	usb2_phy: usb2-phy {
+		compatible = "qcom,usb2-phy";
+		reg = <0x0 0x6a30000 0x0 0x10000>;
+		#phy-cells = <1>;
+		clocks = <&clock 0>;
+		clock-names = "phy";
+		status = "okay";
+	};
+
+display@ae00000 {
+		compatible = "qcom,mdss";
+		reg = <0x0 0xae00000 0x0 0x200000>,
+		      <0x0 0xae200000 0x0 0x200000>;
+		interrupts = <0 108 4>;
+		clocks = <&clock 0>, <&clock 1>, <&clock 2>;
+		clock-names = "bus", "mdp", "vsync";
+		pinctrl-names = "default";
+		pinctrl-0 = <&mdss_default>;
+		status = "okay";
+
+		ports {
+			port@0 {
+				reg = <0>;
+				label = "port0";
+				mdp0_out: endpoint {
+					remote-endpoint = <&dsi0_in>;
+				};
+			};
+			port@1 {
+				reg = <1>;
+				label = "port1";
+				mdp1_out: endpoint {
+					remote-endpoint = <&dsi1_in>;
+				};
+			};
+		};
+	};
+
+	dsi@ae90000 {
+		compatible = "qcom,mdss-dsi";
+		reg = <0x0 0xae90000 0x0 0x10000>;
+		clocks = <&clock 0>, <&clock 1>;
+		clock-names = "core", "pixel";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+
+		dsi0: dsi@0 {
+			reg = <0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "okay";
+
+			dsi0_in: endpoint@0 {
+				remote-endpoint = <&mdp0_out>;
+				data-lanes = <1 2 3 4>;
+			};
+
+			dsi0_out: endpoint@1 {
+				remote-endpoint = <&panel_in>;
+				data-lanes = <1 2 3 4>;
+			};
+		};
+
+		dsi1: dsi@1 {
+			reg = <1>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			status = "okay";
+
+			dsi1_in: endpoint {
+				remote-endpoint = <&mdp1_out>;
+				data-lanes = <1 2 3 4>;
+			};
+		};
+	};
+
+	panel@0 {
+		compatible = "samsung,sofef00";
+		reg = <0>;
+		backlight = <&bl>;
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&dsi0_out>;
+				data-lanes = <1 2 3 4>;
+			};
+		};
+	};
+
+	/* GPU */
+	gpu0: gpu@0 {
+		compatible = "qcom,adreno630";
+		reg = <0x0 0xae30000 0x0 0x10000>;
+		interrupts = <0 109 4>;
+		clocks = <&clock 0>;
+		clock-names = "gpu";
+		status = "okay";
+		#cooling-cells = <2>;
+	};
+
+	bl: backlight {
+		compatible = "samsung,backlight";
+		pwm = <&pmic_pwm 0>;
+		brightness-levels = <0 1 2 3 4 5 6 7 8 9 10
+				    11 12 13 14 15 16 17 18 19 20
+				    21 22 23 24 25 26 27 28 29 30
+				    31 32 33 34 35 36 37 38 39 40
+				    41 42 43 44 45 46 47 48 49 50
+				    51 52 53 54 55 56 57 58 59 60
+				    61 62 63 64 65 66 67 68 69 70
+				    71 72 73 74 75 76 77 78 79 80
+				    81 82 83 84 85 86 87 88 89 90
+				    91 92 93 94 95 96 97 98 99 100
+				    101 102 103 104 105 106 107 108 109 110
+				    111 112 113 114 115 116 117 118 119 120
+				    121 122 123 124 125 126 127 128 129 130
+				    131 132 133 134 135 136 137 138 139 140
+				    141 142 143 144 145 146 147 148 149 150
+				    151 152 153 154 155 156 157 158 159 160
+				    161 162 163 164 165 166 167 168 169 170
+				    171 172 173 174 175 176 177 178 179 180
+				    181 182 183 184 185 186 187 188 189 190
+				    191 192 193 194 195 196 197 198 199 200
+				    201 202 203 204 205 206 207 208 209 210
+				    211 212 213 214 215 216 217 218 219 220
+				    221 222 223 224 225 226 227 228 229 230
+				    231 232 233 234 235 236 237 238 239 240
+				    241 242 243 244 245 246 247 248 249 255>;
+		default-brightness-level = <200>;
+	};
+
+	sound {
+		compatible = "qcom,sdm845-snd-card";
+		qcom,model = "Samsung Galaxy S9";
+		status = "okay";
+	};
+
+	wifi@6c80000 {
+		compatible = "qcom,wcn3990";
+		reg = <0x0 0x6c80000 0x0 0x100000>;
+		interrupts = <0 123 4>;
+		clocks = <&clock 0>;
+		clock-names = "core";
+		pinctrl-names = "default", "sleep";
+		pinctrl-0 = <&wifi_default>;
+		pinctrl-1 = <&wifi_sleep>;
+		status = "okay";
+	};
+
+	bluetooth {
+		compatible = "qcom,wcn3990-bt";
+		status = "okay";
+	};
+
+	pm8998@0 {
+		compatible = "qcom,pm8998";
+		reg = <0x0>;
+		interrupt-parent = <&spmi_controller>;
+		interrupts = <0 0>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "okay";
+
+		pmic_pwm: pwm {
+			compatible = "qcom,pmic-pwm";
+			#pwm-cells = <1>;
+		};
+
+		regulators {
+			vreg-supply {
+				regulator-name = "vdd-supply";
+				regulator-min-microvolt = <3300000>;
+				regulator-max-microvolt = <4400000>;
+			};
+		};
+	};
+
+	sensors {
+		accelerometer {
+			compatible = "bmi160";
+			status = "okay";
+		};
+		gyroscope {
+			compatible = "bmi160";
+			status = "okay";
+		};
+		proximity {
+			compatible = "apds9930";
+			status = "okay";
+		};
+		light {
+			compatible = "apds9930";
+			status = "okay";
+		};
+	};
+
+	modem {
+		compatible = "qcom,mdm";
+		status = "disabled";
+	};
+
+	keymaster {
+		compatible = "qcom,keymaster";
+		status = "okay";
+	};
+
+	gatekeeper {
+		compatible = "qcom,gatekeeper";
+		status = "okay";
+	};
+};
+

@@ -1,0 +1,605 @@
+/*
+ * Qualcomm SDM845 (Snapdragon 845) base device tree
+ * Base SoC definitions for CodeOS/Zircon - minimal version
+ */
+
+/ {
+	compatible = "qcom,sdm845";
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	aliases {
+		serial0 = &serial0;
+		serial1 = &serial1;
+		serial2 = &serial2;
+		i2c0 = &i2c0;
+		i2c1 = &i2c1;
+		spi0 = &spi0;
+		gpio = &gpio;
+		spm = &spm;
+		clock = &clock;
+	};
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu0: cpu@0 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a75";
+			reg = <0x0>;
+			enable-method = "psci";
+			clocks = <&clock 0>;
+			clock-names = "cpu";
+			operating-points-v2 = <&cpu0_opp_table>;
+			cooling-min-state = <0>;
+			cooling-max-state = <7>;
+			#cooling-cells = <2>;
+			cpu-idle-states = <&cpu_sleep_0>, <&cpu_retention_0>;
+		};
+
+		cpu1: cpu@1 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a75";
+			reg = <0x1>;
+			enable-method = "psci";
+			clocks = <&clock 1>;
+			clock-names = "cpu";
+			operating-points-v2 = <&cpu0_opp_table>;
+			cooling-min-state = <0>;
+			cooling-max-state = <7>;
+			#cooling-cells = <2>;
+			cpu-idle-states = <&cpu_sleep_0>, <&cpu_retention_0>;
+		};
+
+		cpu2: cpu@2 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a75";
+			reg = <0x2>;
+			enable-method = "psci";
+			clocks = <&clock 2>;
+			clock-names = "cpu";
+			operating-points-v2 = <&cpu0_opp_table>;
+			cooling-min-state = <0>;
+			cooling-max-state = <7>;
+			#cooling-cells = <2>;
+			cpu-idle-states = <&cpu_sleep_0>, <&cpu_retention_0>;
+		};
+
+		cpu3: cpu@3 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a75";
+			reg = <0x3>;
+			enable-method = "psci";
+			clocks = <&clock 3>;
+			clock-names = "cpu";
+			operating-points-v2 = <&cpu0_opp_table>;
+			cooling-min-state = <0>;
+			cooling-max-state = <7>;
+			#cooling-cells = <2>;
+			cpu-idle-states = <&cpu_sleep_0>, <&cpu_retention_0>;
+		};
+
+		cpu4: cpu@4 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a55";
+			reg = <0x4>;
+			enable-method = "psci";
+			clocks = <&clock 4>;
+			clock-names = "cpu";
+			operating-points-v2 = <&cpu4_opp_table>;
+			cooling-min-state = <0>;
+			cooling-max-state = <7>;
+			#cooling-cells = <2>;
+			cpu-idle-states = <&cpu_sleep_0>, <&cpu_retention_0>;
+		};
+
+		cpu5: cpu@5 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a55";
+			reg = <0x5>;
+			enable-method = "psci";
+			clocks = <&clock 5>;
+			clock-names = "cpu";
+			operating-points-v2 = <&cpu4_opp_table>;
+			cooling-min-state = <0>;
+			cooling-max-state = <7>;
+			#cooling-cells = <2>;
+			cpu-idle-states = <&cpu_sleep_0>, <&cpu_retention_0>;
+		};
+
+		cpu6: cpu@6 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a55";
+			reg = <0x6>;
+			enable-method = "psci";
+			clocks = <&clock 6>;
+			clock-names = "cpu";
+			operating-points-v2 = <&cpu4_opp_table>;
+			cooling-min-state = <0>;
+			cooling-max-state = <7>;
+			#cooling-cells = <2>;
+			cpu-idle-states = <&cpu_sleep_0>, <&cpu_retention_0>;
+		};
+
+		cpu7: cpu@7 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a55";
+			reg = <0x7>;
+			enable-method = "psci";
+			clocks = <&clock 7>;
+			clock-names = "cpu";
+			operating-points-v2 = <&cpu4_opp_table>;
+			cooling-min-state = <0>;
+			cooling-max-state = <7>;
+			#cooling-cells = <2>;
+			cpu-idle-states = <&cpu_sleep_0>, <&cpu_retention_0>;
+		};
+
+		cpu0_opp_table: opp-table0 {
+			compatible = "operating-points-v2";
+			opp-shared;
+
+			opp-2841600000 {
+				opp-hz = /bits/ 64 <2841600000>;
+				opp-microvolt = <1150000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-2726400000 {
+				opp-hz = /bits/ 64 <2726400000>;
+				opp-microvolt = <1125000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-2611200000 {
+				opp-hz = /bits/ 64 <2611200000>;
+				opp-microvolt = <1100000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-2496000000 {
+				opp-hz = /bits/ 64 <2496000000>;
+				opp-microvolt = <1075000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-2380800000 {
+				opp-hz = /bits/ 64 <2380800000>;
+				opp-microvolt = <1050000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-2265600000 {
+				opp-hz = /bits/ 64 <2265600000>;
+				opp-microvolt = <1025000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-2150400000 {
+				opp-hz = /bits/ 64 <2150400000>;
+				opp-microvolt = <1000000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-2035200000 {
+				opp-hz = /bits/ 64 <2035200000>;
+				opp-microvolt = <975000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-1920000000 {
+				opp-hz = /bits/ 64 <1920000000>;
+				opp-microvolt = <950000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-1804800000 {
+				opp-hz = /bits/ 64 <1804800000>;
+				opp-microvolt = <925000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-1689600000 {
+				opp-hz = /bits/ 64 <1689600000>;
+				opp-microvolt = <900000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-1574400000 {
+				opp-hz = /bits/ 64 <1574400000>;
+				opp-microvolt = <875000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-1459200000 {
+				opp-hz = /bits/ 64 <1459200000>;
+				opp-microvolt = <875000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-1344000000 {
+				opp-hz = /bits/ 64 <1344000000>;
+				opp-microvolt = <825000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-1228800000 {
+				opp-hz = /bits/ 64 <1228800000>;
+				opp-microvolt = <800000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-1113600000 {
+				opp-hz = /bits/ 64 <1113600000>;
+				opp-microvolt = <775000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-998400000 {
+				opp-hz = /bits/ 64 <998400000>;
+				opp-microvolt = <750000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-883200000 {
+				opp-hz = /bits/ 64 <883200000>;
+				opp-microvolt = <725000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-768000000 {
+				opp-hz = /bits/ 64 <768000000>;
+				opp-microvolt = <700000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-652800000 {
+				opp-hz = /bits/ 64 <652800000>;
+				opp-microvolt = <675000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-537600000 {
+				opp-hz = /bits/ 64 <537600000>;
+				opp-microvolt = <650000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-422400000 {
+				opp-hz = /bits/ 64 <422400000>;
+				opp-microvolt = <625000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-307200000 {
+				opp-hz = /bits/ 64 <307200000>;
+				opp-microvolt = <600000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-192000000 {
+				opp-hz = /bits/ 64 <192000000>;
+				opp-microvolt = <575000>;
+				opp-supported-hw = <0xf>;
+				clock-latency-ns = <200000>;
+			};
+		};
+
+		cpu4_opp_table: opp-table4 {
+			compatible = "operating-points-v2";
+			opp-shared;
+
+			opp-1785600000 {
+				opp-hz = /bits/ 64 <1785600000>;
+				opp-microvolt = <1050000>;
+				opp-supported-hw = <0xf0>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-1670400000 {
+				opp-hz = /bits/ 64 <1670400000>;
+				opp-microvolt = <1025000>;
+				opp-supported-hw = <0xf0>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-1555200000 {
+				opp-hz = /bits/ 64 <1555200000>;
+				opp-microvolt = <1000000>;
+				opp-supported-hw = <0xf0>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-1440000000 {
+				opp-hz = /bits/ 64 <1440000000>;
+				opp-microvolt = <975000>;
+				opp-supported-hw = <0xf0>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-1324800000 {
+				opp-hz = /bits/ 64 <1324800000>;
+				opp-microvolt = <950000>;
+				opp-supported-hw = <0xf0>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-1209600000 {
+				opp-hz = /bits/ 64 <1209600000>;
+				opp-microvolt = <925000>;
+				opp-supported-hw = <0xf0>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-1094400000 {
+				opp-hz = /bits/ 64 <1094400000>;
+				opp-microvolt = <900000>;
+				opp-supported-hw = <0xf0>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-979200000 {
+				opp-hz = /bits/ 64 <979200000>;
+				opp-microvolt = <875000>;
+				opp-supported-hw = <0xf0>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-864000000 {
+				opp-hz = /bits/ 64 <864000000>;
+				opp-microvolt = <850000>;
+				opp-supported-hw = <0xf0>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-748800000 {
+				opp-hz = /bits/ 64 <748800000>;
+				opp-microvolt = <825000>;
+				opp-supported-hw = <0xf0>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-633600000 {
+				opp-hz = /bits/ 64 <633600000>;
+				opp-microvolt = <800000>;
+				opp-supported-hw = <0xf0>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-518400000 {
+				opp-hz = /bits/ 64 <518400000>;
+				opp-microvolt = <775000>;
+				opp-supported-hw = <0xf0>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-403200000 {
+				opp-hz = /bits/ 64 <403200000>;
+				opp-microvolt = <750000>;
+				opp-supported-hw = <0xf0>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-288000000 {
+				opp-hz = /bits/ 64 <288000000>;
+				opp-microvolt = <725000>;
+				opp-supported-hw = <0xf0>;
+				clock-latency-ns = <200000>;
+			};
+
+			opp-172800000 {
+				opp-hz = /bits/ 64 <172800000>;
+				opp-microvolt = <700000>;
+				opp-supported-hw = <0xf0>;
+				clock-latency-ns = <200000>;
+			};
+		};
+
+		cpu_sleep_0: cpu-sleep-0 {
+			compatible = "arm,idle-state";
+			arm,psci-suspend-param = <0x0010000>;
+			local-timer-stop;
+			entry-latency-us = <300>;
+			exit-latency-us = <700>;
+			min-residency-us = <4000>;
+		};
+
+		cpu_retention_0: cpu-retention-0 {
+			compatible = "arm,idle-state";
+			arm,psci-suspend-param = <0x0010001>;
+			local-timer-stop;
+			entry-latency-us = <600>;
+			exit-latency-us = <1200>;
+			min-residency-us = <8000>;
+		};
+	};
+
+	/* GIC */
+	intc: interrupt-controller@80a0000 {
+		compatible = "arm,gic-v3";
+		reg = <0x0 0x80a0000 0x0 0x10000>,
+		      <0x0 0x80c0000 0x0 0x20000>,
+		      <0x0 0x80e0000 0x0 0x10000>;
+		interrupt-controller;
+		#interrupt-cells = <3>;
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		its: its@80e0000 {
+			compatible = "arm,gic-v3-its";
+			reg = <0x0 0x80e0000 0x0 0x10000>;
+		};
+	};
+
+	/* Timers */
+	timer {
+		compatible = "arm,armv8-timer";
+		interrupts = <1 13 0xf04>,  /* PPI 13 */
+			     <1 14 0xf04>,  /* PPI 14 */
+			     <1 11 0xf04>,  /* PPI 11 */
+			     <1 10 0xf04>;  /* PPI 10 */
+		always-on;
+	};
+
+	/* PSCI */
+	psci {
+		compatible = "arm,psci-1.0";
+		method = "smc";
+	};
+
+	/* SPM */
+	spm: power-controller@8040000 {
+		compatible = "qcom,sdm845-spm";
+		reg = <0x0 0x8040000 0x0 0x10000>;
+		#power-domain-cells = <1>;
+	};
+
+	/* Clock controller */
+	clock: clock-controller@1a00000 {
+		compatible = "qcom,sdm845-clock";
+		reg = <0x0 0x1a00000 0x0 0x20000>;
+		#clock-cells = <1>;
+	};
+
+	/* GPIO */
+	gpio: gpio@1000000 {
+		compatible = "qcom,sdm845-gpio";
+		reg = <0x0 0x1000000 0x0 0x100000>;
+		interrupts = <0 16 4>, <0 17 4>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		interrupt-controller;
+		#interrupt-cells = <2>;
+	};
+
+	/* I2C */
+	i2c0: i2c@880000 {
+		compatible = "qcom,geni-i2c";
+		reg = <0x0 0x880000 0x0 0x100000>;
+		interrupts = <0 28 4>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		clocks = <&clock 0>;
+		clock-names = "clk";
+		status = "disabled";
+	};
+
+	i2c1: i2c@881000 {
+		compatible = "qcom,geni-i2c";
+		reg = <0x0 0x881000 0x0 0x100000>;
+		interrupts = <0 29 4>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		clocks = <&clock 0>;
+		clock-names = "clk";
+		status = "disabled";
+	};
+
+	/* SPI */
+	spi0: spi@885000 {
+		compatible = "qcom,geni-spi";
+		reg = <0x0 0x885000 0x0 0x100000>;
+		interrupts = <0 30 4>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		clocks = <&clock 0>;
+		clock-names = "clk";
+		status = "disabled";
+	};
+
+	/* UARTs */
+	serial0: serial@4a90000 {
+		compatible = "qcom,geni-uart";
+		reg = <0x0 0x4a90000 0x0 0x100000>;
+		interrupts = <0 32 4>;
+		clocks = <&clock 0>;
+		clock-names = "clk";
+		status = "disabled";
+	};
+
+	serial1: serial@4aa0000 {
+		compatible = "qcom,geni-uart";
+		reg = <0x0 0x4aa0000 0x0 0x100000>;
+		interrupts = <0 33 4>;
+		clocks = <&clock 0>;
+		clock-names = "clk";
+		status = "disabled";
+	};
+
+	serial2: serial@4ab0000 {
+		compatible = "qcom,geni-uart";
+		reg = <0x0 0x4ab0000 0x0 0x100000>;
+		interrupts = <0 34 4>;
+		clocks = <&clock 0>;
+		clock-names = "clk";
+		status = "disabled";
+	};
+
+	/* SPMI */
+	spmi_controller: spmi@12a00000 {
+		compatible = "qcom,spmi-pmic-arb";
+		reg = <0x0 0x12a00000 0x0 0x100000>;
+		interrupts = <0 124 4>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+	};
+
+	/* Thermal */
+	tsens: thermal-sensor@1a80000 {
+		compatible = "qcom,sdm845-tsens";
+		reg = <0x0 0x1a80000 0x0 0x10000>;
+		interrupts = <0 125 4>;
+		#thermal-sensor-cells = <1>;
+	};
+
+	/* PMIC */
+	pmic@0 {
+		compatible = "qcom,pm8998";
+		reg = <0x0>;
+		interrupt-parent = <&spmi_controller>;
+		interrupts = <0 0>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+	};
+
+	/* Thermal zones */
+	thermal-zones {
+		cpu-thermal {
+			polling-delay = <1000>;
+			thermal-sensors = <&tsens 0>, <&tsens 1>, <&tsens 2>, <&tsens 3>;
+		};
+		gpu-thermal {
+			polling-delay = <1000>;
+			thermal-sensors = <&tsens 14>;
+		};
+	};
+};
+
+/* Include files */
+/include/ "sdm845-gpio.dtsi"
+/include/ "sdm845-pinctrl.dtsi"

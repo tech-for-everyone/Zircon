@@ -1,0 +1,22 @@
+/*
+ * Qualcomm SDM845 GPIO definitions - minimal version
+ */
+
+/ {
+	gpio: gpio@1000000 {
+		compatible = "qcom,sdm845-gpio";
+		reg = <0x0 0x1000000 0x0 0x100000>;
+		interrupts = <0 16 4>, <0 17 4>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		interrupt-controller;
+		#interrupt-cells = <2>;
+	};
+
+	/* PMIC GPIOs (via SPMI) */
+	pmic_gpio: pmic-gpio {
+		compatible = "qcom,pmic-gpio";
+		#gpio-cells = <2>;
+		gpio-controller;
+	};
+};

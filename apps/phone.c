@@ -3,6 +3,7 @@
 #include "../gui/windows.h"
 #include "../gui/widgets.h"
 #include <string.h>
+#include <stdio.h>
 
 static int active_call = 0;
 static char last_number[16];

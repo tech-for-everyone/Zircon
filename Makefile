@@ -3,26 +3,46 @@
 # ║  Google-free mobile/desktop OS built on the CodeOS kernel       ║
 # ╚══════════════════════════════════════════════════════════════╝
 
-CC := x86_64-elf-gcc
-AR := x86_64-elf-ar
-ARFLAGS := rcs
-OBJCOPY := x86_64-elf-objcopy
-MKDIR := mkdir -p
-CP := cp
+# ── Architecture selection ──
+ARCH ?= x86_64
 
-BUILD := build
-KERNEL_DIR := ../kernel
-ISO_DIR := build/iso
-ISO_ROOT := $(ISO_DIR)/iso_root
-
-CFLAGS := -std=c99 -Wall -Wextra -pedantic -g
-CPPFLAGS := -I. -Igui -Iapps -Ibrowser -I../qt6/panels -I../pkgs/core/panels/src -I../pkgs/core/openssl/freestd -I$(KERNEL_DIR)/kernel -I../qt6/posixstubs/include -I../qt6/posixstubs/include/sys -I../qt6/sysroot/usr/include -D_GNU_SOURCE
-# Locate libgcc from the cross compiler instead of hardcoding a versioned
-# path (e.g. /usr/lib/gcc/x86_64-elf/16.2.0) that breaks on other machines.
-LD_LIBGCC_DIR := $(dir $(shell $(CC) -print-libgcc-file-name 2>/dev/null))
-LDFLAGS := -L../qt6/sysroot/usr/lib -L$(LD_LIBGCC_DIR) -lgcc
-LDLIBS := -lm
-RUST_TOOLCHAIN := $(HOME)/.rustup/toolchains/1.92.0-x86_64-unknown-linux-gnu/bin
+ifeq ($(ARCH),arm64)
+    CC := aarch64-linux-gnu-gcc
+    AR := aarch64-linux-gnu-ar
+    ARFLAGS := rcs
+    OBJCOPY := aarch64-linux-gnu-objcopy
+    LD := aarch64-linux-gnu-ld
+    BUILD := build/arm64
+    KERNEL_DIR := ../kernel
+    ISO_DIR := build/iso-arm64
+    ISO_ROOT := $(ISO_DIR)/iso_root
+    CFLAGS := -std=c99 -Wall -Wextra -pedantic -g -ffreestanding -nostdlib -nostartfiles -fno-stack-protector -fno-PIC -mgeneral-regs-only
+    CPPFLAGS := -I. -Igui -Iapps -Ibrowser -I../kernel/arch/arm64 -Ikernel/arch/arm64/dts -D__ARM64__ -D__ZIRCON_ARM64__
+    MKDIR := mkdir -p
+    CP := cp
+    LDFLAGS := -nostdlib -z max-page-size=0x1000 -z noexecstack -T kernel/arch/arm64/linker.ld
+    LDLIBS :=
+    RUST_TOOLCHAIN := $(HOME)/.rustup/toolchains/1.92.0-x86_64-unknown-linux-gnu/bin
+else
+    CC := x86_64-elf-gcc
+    AR := x86_64-elf-ar
+    ARFLAGS := rcs
+    OBJCOPY := x86_64-elf-objcopy
+    MKDIR := mkdir -p
+    CP := cp
+    BUILD := build
+    KERNEL_DIR := ../kernel
+    ISO_DIR := build/iso
+    ISO_ROOT := $(ISO_DIR)/iso_root
+    CFLAGS := -std=c99 -Wall -Wextra -pedantic -g
+    CPPFLAGS := -I. -Igui -Iapps -Ibrowser -I../qt6/panels -I../pkgs/core/panels/src -I../pkgs/core/openssl/freestd -I$(KERNEL_DIR)/kernel -I../qt6/posixstubs/include -I../qt6/posixstubs/include/sys -I../qt6/sysroot/usr/include -D_GNU_SOURCE
+    # Locate libgcc from the cross compiler instead of hardcoding a versioned
+    # path (e.g. /usr/lib/gcc/x86_64-elf/16.2.0) that breaks on other machines.
+    LD_LIBGCC_DIR := $(dir $(shell $(CC) -print-libgcc-file-name 2>/dev/null))
+    LDFLAGS := -L../qt6/sysroot/usr/lib -L$(LD_LIBGCC_DIR) -lgcc
+    LDLIBS := -lm
+    RUST_TOOLCHAIN := $(HOME)/.rustup/toolchains/1.92.0-x86_64-unknown-linux-gnu/bin
+endif
 
 # ── Sources ──
 
@@ -52,12 +72,15 @@ DEP := $(OBJ:.o=.d) $(STUBS_OBJ:.o=.d) $(CRT0_OBJ:.o=.d) $(BROWSER_OBJ:.o=.d) $(
 # ── Targets ──
 
 ZIRCON_KERNEL := $(KERNEL_DIR)/codeos-1-kernel.bin
+ZIRCON_KERNEL_ARM64 := $(KERNEL_DIR)/zircon-kernel-arm64.bin
+ZIRCON_DTB := $(BUILD)/zircon-sm-g960u.dtb
 ZIRCON_INIT := $(BUILD)/zircon_init
 ZIRCON_COMPOSITOR := $(BUILD)/zircond
 ZIRCON_LIB := $(BUILD)/libzircon.a
 ZIRCON_APP_LIB := $(BUILD)/libzircapp.a
 ZIRCON_ELF := $(BUILD)/zircon.elf
 ZIRCON_ISO := $(BUILD)/zircon.iso
+ZIRCON_ISO_ARM64 := $(BUILD)/zircon-arm64.iso
 
 # Limine stage-3 image. Do NOT use $(KERNEL_DIR)/bootloader/limine-bios.sys:
 # that is a stale 351944-byte copy which does not match limine-bios-cd.bin,
@@ -67,7 +90,7 @@ ZIRCON_ISO := $(BUILD)/zircon.iso
 LIMINE_BIOS_SYS := $(KERNEL_DIR)/bootloader/iso_root/boot/limine-bios.sys
 LIMINE_DEPLOY := $(KERNEL_DIR)/bootloader/limine-deploy
 
-.PHONY: all clean debug release run iso initramfs zircon-init
+.PHONY: all clean debug release run iso iso-arm64 initramfs zircon-init
 
 all: $(ZIRCON_LIB) $(ZIRCON_APP_LIB) $(ZIRCON_COMPOSITOR) $(ZIRCON_INIT) $(ZIRCON_ELF)
 
@@ -114,6 +137,39 @@ $(NET_OBJ): $(NET_SRC)
 
 $(ZIRCON_COMPOSITOR): $(filter-out $(BUILD)/zircon_init.o $(STUBS_OBJ), $(OBJ)) $(LIBC_OBJ) $(BROWSER_OBJ) $(OW_HTML_OBJ) $(NET_OBJ)
 	$(CC) -nostartfiles -o $@ $(filter-out $(BUILD)/zircon_init.o $(STUBS_OBJ),$(OBJ)) $(LIBC_OBJ) $(BROWSER_OBJ) $(OW_HTML_OBJ) $(NET_OBJ) $(LDFLAGS) $(LDLIBS) $(RUST_LIB)
+
+# ── ARM64 Kernel Build ──
+#
+# These rules are only meaningful under ARCH=arm64. They are scoped to that
+# architecture on purpose: the pattern `$(BUILD)/%.o: kernel/arch/arm64/%.c`
+# would otherwise shadow the generic `$(BUILD)/%.o: %.c` rule in the x86_64
+# build (both prefix `build/`), and the root main.c would get compiled from
+# kernel/arch/arm64/main.c.
+
+ifeq ($(ARCH),arm64)
+
+ARM64_C_SRC := $(wildcard kernel/arch/arm64/*.c)
+ARM64_S_SRC := $(wildcard kernel/arch/arm64/*.S)
+ARM64_OBJ := $(patsubst kernel/arch/arm64/%.c,$(BUILD)/%.o,$(ARM64_C_SRC)) \
+             $(patsubst kernel/arch/arm64/%.S,$(BUILD)/%.o,$(ARM64_S_SRC))
+
+$(ZIRCON_KERNEL_ARM64): $(ARM64_OBJ)
+	$(LD) $(LDFLAGS) -o $@ $^
+
+$(BUILD)/%.o: kernel/arch/arm64/%.c
+	$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -MMD -MP -c $< -o $@
+
+$(BUILD)/%.o: kernel/arch/arm64/%.S
+	$(MKDIR) $(dir $@)
+	$(CC) $(CPPFLAGS) -c $< -o $@
+
+# DTB compilation
+$(ZIRCON_DTB): kernel/arch/arm64/dts/sm-g960u.dts
+	$(MKDIR) $(dir $@)
+	dtc -I dts -O dtb -o $@ $<
+
+endif # ARCH == arm64
 
 # ── Init process ──
 
@@ -164,7 +220,7 @@ initramfs: $(ZIRCON_INIT) $(ZIRCON_COMPOSITOR)
 	echo '/sbin/zircon_init' >> $(ISO_ROOT)/init
 	chmod +x $(ISO_ROOT)/init
 
-# ── ISO ──
+# ── ISO (x86_64) ──
 
 iso: initramfs
 	$(MKDIR) $(ISO_DIR)
@@ -212,6 +268,32 @@ iso: initramfs
 	# "Booting from DVD/CD..." and then hangs forever with no diagnostic.
 	$(LIMINE_DEPLOY) bios-install $(ZIRCON_ISO)
 	@echo "Zircon ISO built: $(ZIRCON_ISO)"
+
+# ── ISO (ARM64 for Samsung Galaxy S9) ──
+
+iso-arm64: $(ZIRCON_KERNEL_ARM64) $(ZIRCON_DTB)
+	$(MKDIR) $(ISO_ROOT)/boot
+	$(CP) $(ZIRCON_KERNEL_ARM64) $(ISO_ROOT)/boot/zircon-kernel-arm64.bin
+	$(CP) $(ZIRCON_DTB) $(ISO_ROOT)/boot/zircon-sm-g960u.dtb
+	$(CP) bootloader/limine.conf $(ISO_ROOT)/boot/limine.conf
+	$(CP) $(KERNEL_DIR)/bootloader/limine-uefi-cd.bin $(ISO_ROOT)/boot/
+	$(CP) $(KERNEL_DIR)/bootloader/splash.png $(ISO_ROOT)/boot/
+	# Create init script
+	echo '#!/bin/sh' > $(ISO_ROOT)/init
+	echo 'mount -t proc none /proc' >> $(ISO_ROOT)/init
+	echo 'mount -t sysfs none /sys' >> $(ISO_ROOT)/init
+	echo 'echo "Zircon OS ARM64 v1.0.0"' >> $(ISO_ROOT)/init
+	echo 'echo "Booting on Samsung Galaxy S9 (SM-G960U)"' >> $(ISO_ROOT)/init
+	chmod +x $(ISO_ROOT)/init
+	# Build ARM64 ISO (UEFI only for ARM64)
+	xorriso -as mkisofs \
+		-no-emul-boot \
+		-boot-load-size 4 \
+		-boot-info-table \
+		--efi-boot boot/limine-uefi-cd.bin \
+		-efi-boot-part --efi-boot-image --protective-msdos-label \
+		$(ISO_ROOT) -o $(ZIRCON_ISO_ARM64)
+	@echo "Zircon ARM64 ISO built: $(ZIRCON_ISO_ARM64)"
 
 # ── Run ──
 
