@@ -3,7 +3,7 @@
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")" && pwd)"
-ISO="${SRC}/kernel/zircon-1.0.iso"
+ISO="${SRC}/build/zircon.iso"
 DISK="${SRC}/disk.img"
 
 # Source color helpers
@@ -16,7 +16,8 @@ else
     step()    { echo "==> $1"; }
 fi
 # Normal Settings
-MEM=4GB
+# QEMU sizes take an M/G suffix; "4GB" is not a size it accepts.
+MEM=4096M
 CPUS=4
 SKIP_BUILD=0
 
@@ -49,11 +50,16 @@ while getopts "m:c:snh" opt; do
 done
 
 # Build a fresh Limine ISO so the boot test always exercises current code.
-# The kernel Makefile's `all` target does NOT produce the ISO, so build the
-# ISO target explicitly; it depends on the kernel binary and its objects.
+# Rebuild the kernel and then the Zircon ISO. The kernel Makefile's `all`
+# target produces boot/codeos-1-kernel.bin; the Zircon `iso` target copies that
+# into the image as /boot/zircon-kernel.bin (ZIRCON_KERNEL := kernel/codeos-1-kernel.bin)
+# and writes build/zircon.iso. The old `make -j kernel zircon-kernel-1.0.iso`
+# named a target that does not exist anywhere.
 if [ "$SKIP_BUILD" -eq 0 ]; then
-    step "Building fresh Limine ISO..."
-    make -j kernel zircon-kernel-1.0.iso
+    step "Building kernel..."
+    make -C "${SRC}/../kernel" all
+    step "Building Zircon ISO..."
+    make -C "$SRC" iso
 else
     if [ ! -f "$ISO" ]; then
         error "ISO not found: $ISO (run without -s to build it)"
@@ -75,9 +81,9 @@ QEMU_ARGS=(
     -m "$MEM"
     -smp "$CPUS"
     -serial stdio
-    # No -enable-kvm / -accel kvm: KVM is unavailable in this environment, so
-    # the VM runs under pure emulation (slower, but it boots the same images).
 )
+# Acceleration is chosen below: -accel kvm when /dev/kvm exists, otherwise
+# -accel tcg,thread=multi (slower, but boots the same images).
 
 # USB devices
 QEMU_ARGS+=(

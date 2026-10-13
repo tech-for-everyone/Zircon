@@ -6,6 +6,13 @@
 # ── Architecture selection ──
 ARCH ?= x86_64
 
+# The LLVM linker is preferred for the userspace and Zircon images, but a host
+# without the lld package has no `ld.lld` for clang to find; fall back to the
+# host GNU ld/binutils there.  Detected once so both branches agree.
+# `:=` (not `?=`) below because GNU make predefines LD = ld and AR = ar; a
+# command-line `make LD=...` still overrides.
+HAVE_LLD := $(shell command -v ld.lld >/dev/null 2>&1 && echo 1)
+
 ifeq ($(ARCH),arm64)
     # clang cross-compiles the freestanding aarch64 kernel. `ld.lld` is the
     # LLVM linker for the same target. `ar`/`objcopy` stay GNU binutils
@@ -13,10 +20,10 @@ ifeq ($(ARCH),arm64)
     # on the build host; they are only used to archive/transform objects and
     # never touch codegen.
     CC := clang --target=aarch64-none-elf
-    AR := aarch64-linux-gnu-ar
+    AR := $(shell command -v aarch64-linux-gnu-ar >/dev/null 2>&1 && echo aarch64-linux-gnu-ar || echo ar)
     ARFLAGS := rcs
-    OBJCOPY := aarch64-linux-gnu-objcopy
-    LD := ld.lld -m aarch64elf
+    OBJCOPY := $(shell command -v aarch64-linux-gnu-objcopy >/dev/null 2>&1 && echo aarch64-linux-gnu-objcopy || echo objcopy)
+    LD := $(shell command -v ld.lld >/dev/null 2>&1 && echo "ld.lld -m aarch64elf" || echo "ld -m aarch64elf")
     BUILD := build/arm64
     KERNEL_DIR := ../kernel
     ISO_DIR := build/iso-arm64
@@ -35,9 +42,9 @@ else
     # GNU binutils because llvm-ar/llvm-objcopy are not installed on the
     # build host; they only archive/transform objects, never touch codegen.
     CC := clang --target=x86_64-unknown-none
-    AR := x86_64-elf-ar
+    AR := $(shell command -v x86_64-elf-ar >/dev/null 2>&1 && echo x86_64-elf-ar || echo ar)
     ARFLAGS := rcs
-    OBJCOPY := x86_64-elf-objcopy
+    OBJCOPY := $(shell command -v x86_64-elf-objcopy >/dev/null 2>&1 && echo x86_64-elf-objcopy || echo objcopy)
     MKDIR := mkdir -p
     CP := cp
     BUILD := build
@@ -50,7 +57,7 @@ else
     # compiler builtins, so the runtime archive is not needed. `-static`
     # keeps lld from emitting a PT_INTERP, matching the static link the
     # retired x86_64-elf-gcc produced.
-    LDFLAGS := -nostdlib -static -no-pie -fuse-ld=lld -L../qt6/sysroot/usr/lib
+    LDFLAGS := -nostdlib -static -no-pie $(if $(HAVE_LLD),-fuse-ld=lld,) -L../qt6/sysroot/usr/lib
     LDLIBS := -lm
     RUST_TOOLCHAIN := $(HOME)/.rustup/toolchains/1.92.0-x86_64-unknown-linux-gnu/bin
 endif
@@ -311,7 +318,7 @@ iso-arm64: $(ZIRCON_KERNEL_ARM64) $(ZIRCON_DTB)
 # The kernel cmdline lives in the limine config, not on the QEMU command line:
 # -append is rejected without -kernel ("-append only allowed with -kernel
 # option"), and this boots an ISO through limine.
-run: $(ZIRCON_ISO)
+run: iso
 	qemu-system-x86_64 \
 		-cpu Haswell,+smep \
 		-m 4096 \
