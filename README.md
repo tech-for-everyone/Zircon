@@ -12,15 +12,15 @@ No Google services. No sign-in required.
 
 ## Features
 
-- **Native C apps** — no VM, no garbage collector, no bloat
-- **Adaptive GUI** — same UI scales from phone to laptop
-- **CodeOS kernel** — fast, minimal, GPLv3
-- **Google-free** — no Play Services, no tracking, no sign-in
-- **Extensible** — write apps in C or Python
-- **Built-in apps** — Phone, SMS, Settings, Camera, Clock, Calculator, Music,
-  Gallery, Browser, Notes, Files, Terminal, Weather, About, Notifications
-- **OpenWeb browser** — Rust-powered HTTP + HTML rendering (libow_http.a), no WebKit
-- **Packaged userland** — every part of the OS is a package under `pkgs/`
+- **Native C apps** — no VM, no garbage collector, no bloat.
+- **Adaptive GUI** — same UI scales from phone to laptop.
+- **CodeOS kernel** — fast, minimal, GPLv3.
+- **Google-free** — no Play Services, no tracking, no sign-in.
+- **Extensible** — write apps in C, Rust, Python.
+- **Built-in apps** — Phone, SMS, Settings, Camera, Clock, Calculator, Music.
+  Gallery, Browser, Notes, Files, Terminal, Weather, About, Notifications.
+- **OpenWeb browser** — Rust-powered HTTP + HTML rendering (libow_http.a), no WebKit.
+- **Packaged userland** — every part of the OS is a package under `pkgs/`.
 
 ## Directory structure
 
@@ -53,4 +53,4 @@ sudo bash kernel/install.sh
 
 ## License
 
-GPLv3 Lisence
+GPLv3 License
