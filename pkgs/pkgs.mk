@@ -62,6 +62,7 @@ CPPFLAGS := \
 	-I$(ZROOT)/../qt6/posixstubs/include \
 	-I$(ZROOT)/../qt6/posixstubs/include/sys \
 	-I$(ZROOT)/../qt6/sysroot/usr/include \
+	-I$(ZROOT)/kernel/userspace/include \
 	-D_GNU_SOURCE
 
 # Link flags for the images assembled by the top-level Makefile.  `none` is a
