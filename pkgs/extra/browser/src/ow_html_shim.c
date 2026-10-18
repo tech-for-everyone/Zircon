@@ -19,64 +19,20 @@ int  ow_need_render;
 ow_line_info_t ow_line_info[OW_TXT_LINES];
 int  ow_line_img[OW_TXT_LINES];
 char ow_page_title[OW_URL_MAX];
+/* <meta name="description"> / og:description text ("" if none) -- the
+ * renderer writes this alongside ow_page_title since the OpenWeb meta work. */
+char ow_page_desc[OW_URL_MAX];
 
 ow_form_t ow_forms[OW_MAX_FORMS];
 int  ow_form_cnt;
 ow_form_field_t ow_form_fields[OW_MAX_FIELDS];
 int  ow_field_cnt;
 
-/* ── Form field edits (values survive re-render via Rust fv bridge) ── */
-
-void ow_field_set_value(int i, const char *v) {
-    if (i < 0 || i >= ow_field_cnt || !v) return;
-    strncpy(ow_form_fields[i].value, v, OW_URL_MAX - 1);
-    ow_form_fields[i].value[OW_URL_MAX - 1] = 0;
-}
-
-void ow_field_toggle(int i) {
-    if (i < 0 || i >= ow_field_cnt) return;
-    ow_form_fields[i].checked = ow_form_fields[i].checked ? 0 : 1;
-}
-
-int ow_field_at(int line, int col) {
-    for (int i = 0; i < ow_field_cnt; i++) {
-        ow_form_field_t *f = &ow_form_fields[i];
-        if (f->line == line && col >= f->col && col < f->col + f->width)
-            return i;
-    }
-    return -1;
-}
-
-int ow_form_build_query(const ow_form_t *f, char *out, int out_max) {
-    if (!f || !out || out_max <= 0) return 0;
-    int used = 0;
-    for (int i = 0; i < f->field_count; i++) {
-        int idx = f->field_start + i;
-        if (idx < 0 || idx >= ow_field_cnt) continue;
-        ow_form_field_t *fi = &ow_form_fields[idx];
-        if (fi->type == OW_FT_BUTTON || fi->type == OW_FT_SUBMIT) continue;
-        if ((fi->type == OW_FT_CHECKBOX || fi->type == OW_FT_RADIO) && !fi->checked)
-            continue;
-        int need = (int)strlen(fi->name) + (int)strlen(fi->value) + 2;
-        if (used + need >= out_max - 1) break;
-        if (used) out[used++] = '&';
-        strcpy(out + used, fi->name);
-        used += (int)strlen(fi->name);
-        out[used++] = '=';
-        strcpy(out + used, fi->value);
-        used += (int)strlen(fi->value);
-    }
-    out[used] = 0;
-    return used;
-}
-
-void ow_fv_restore(ow_form_field_t *f, int fi) {
-    (void)f; (void)fi; /* edits live in our globals already; nothing to bridge */
-}
-
-void ow_fv_store(const ow_form_field_t *f, int fi) {
-    (void)f; (void)fi;
-}
+/* The form API (ow_field_set_value/toggle/at, ow_form_build_query) and the
+ * persistent per-control edit cache (ow_fv_restore/ow_fv_store) live in the
+ * Rust renderer now (kernel/kernel/rust_ow/src/ow_form.rs) and are exported
+ * from libow_http.a.  Defining them here as well would collide with the
+ * archive members this link pulls in for the render globals above. */
 
 /* ── Image services (no network on Zircon/qemu — offline stubs) ── */
 

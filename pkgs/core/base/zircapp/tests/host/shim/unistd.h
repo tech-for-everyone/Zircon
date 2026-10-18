@@ -16,5 +16,6 @@
 int sys_read(int fd, void *buf, int count);
 int sys_pwrite(int fd, const void *buf, int count);
 int sys_wm_attach(void);
+int sys_get_info(int cmd, char *buf, int max_len);
 
 #endif /* ZIRCAPP_HOST_TEST_UNISTD_H */

@@ -60,6 +60,20 @@ int sys_pwrite(int fd, const void *buf, int count) {
 
 int sys_wm_attach(void) { return 1; }
 
+/* The host reads the RTC (cmd 3) for the Clock screen and the kernel
+ * version (cmd 0) for About; the test provides both deterministically. */
+int sys_get_info(int cmd, char *buf, int max_len) {
+    const char *s = "stub";
+    if (cmd == 0) s = "CodeOS stub kernel";
+    else if (cmd == 3) s = "2026-10-18 12:34:56";
+    int len = (int)strlen(s) + 1;
+    if (buf && max_len > 0) {
+        if (len > max_len) len = max_len;
+        memcpy(buf, s, (size_t)len);
+    }
+    return len;
+}
+
 /* ── fake Zircon ABI used by the framework TU ── */
 
 long zs_ipc_query(void) { return -1; }
@@ -229,6 +243,96 @@ int main(void) {
     feed[feed_n++] = 27; feed[feed_n++] = 0;   /* only 4 of 6 bytes */
     pump_events();
     CHECK(mode == MODE_APP, "a truncated record is held back, not decoded from the tail");
+
+    /* ── per-app screens: calculator ── */
+    app_state_reset();
+    calc_input('7'); calc_input('8'); calc_input('+'); calc_input('2'); calc_input('=');
+    CHECK(ast.calc_acc == 80, "calculator folds 78 + 2 into 80");
+    calc_input('c');
+    CHECK(ast.calc_acc == 0 && ast.calc_op == 0 && !ast.calc_err,
+          "C resets the calculator");
+    calc_input('5'); calc_input('/'); calc_input('0'); calc_input('=');
+    CHECK(ast.calc_err == 1, "divide by zero raises ERR");
+    CHECK(calc_key_at(CALC_X0 + 5, CALC_Y0 + 4 * (CALC_CH + CALC_GAP) + 5) == '0',
+          "bottom-left key is 0");
+    CHECK(calc_key_at(CALC_X0 + 3 * (CALC_CW + CALC_GAP) + 5,
+                      CALC_Y0 + 4 * (CALC_CH + CALC_GAP) + 5) == '=',
+          "tall bottom-right key is =");
+    CHECK(calc_key_at(CALC_X0 + 5, CALC_Y0 + 5) == 'C',
+          "top-left key is C");
+
+    /* ── clock ── */
+    {
+        char t[9];
+        clock_hms(3661, t);
+        CHECK(!strcmp(t, "01:01:01"), "clock_hms wraps 3661s to 01:01:01");
+        CHECK(seg_mask(8) == 0x7F && seg_mask(1) == 0x06,
+              "seven-segment masks match the classic map");
+        char hms[9], date[12];
+        int r = 0;
+        clock_now(hms, date, &r);
+        CHECK(r == 1 && !strcmp(hms, "12:34:56"),
+              "clock_now reads the RTC string via GET_INFO");
+        CHECK(!strcmp(date, "2026-10-18"), "clock_now splits the date out");
+    }
+
+    /* ── notes ── */
+    app_state_reset();
+    note_input('h'); note_input('i'); note_input('!');
+    CHECK(!strcmp(ast.notes, "hi!"), "notes take typed characters");
+    note_input(8);
+    CHECK(!strcmp(ast.notes, "hi"), "Backspace trims the notes buffer");
+
+    /* ── terminal ── */
+    app_state_reset();
+    term_input('a'); term_input('p'); term_input('p'); term_input('s');
+    CHECK(!strcmp(ast.term_cur, "apps"), "terminal keeps the line being typed");
+    term_input('\r');
+    CHECK(ast.term_cnt == 1, "Enter posts the echoed line");
+    term_input('h'); term_input('e'); term_input('l'); term_input('p'); term_input('\r');
+    CHECK(ast.term_cnt == 2 && !strcmp(ast.term_lines[1], "commands: help apps time about clear"),
+          "help answers with the command list");
+    term_input('c'); term_input('l'); term_input('e'); term_input('a'); term_input('r'); term_input('\r');
+    CHECK(ast.term_cnt == 0, "clear wipes the scrollback");
+
+    /* ── phone: the click path through the real host routes to the pad ── */
+    reset_state();
+    app_state_reset();
+    feed_conn(9);
+    feed_mouse(9, 210, 60, 1);   /* launch Phone            */
+    feed_mouse(9, 200, 240, 1);  /* dial pad: row 1, col 1  */
+    pump_events();
+    CHECK(!strcmp(ast.dial, "5"), "a dial pad click types the digit");
+    dial_input('0'); dial_input('#');
+    CHECK(!strcmp(ast.dial, "50#"), "dial accepts digits and # from the keyboard");
+    CHECK(dial_call_at(DIAL_X0 + 10,
+                       DIAL_Y0 + 4 * (DIAL_CH + DIAL_GAP) + 20),
+          "the call button hit-box matches the drawn button");
+
+    /* ── settings toggles ── */
+    app_state_reset();
+    {
+        unsigned before = ast.settings;
+        settings_toggle(0);
+        CHECK((ast.settings & SET_WIFI) != (before & SET_WIFI),
+              "tapping Wi-Fi flips its toggle");
+        settings_toggle(0);
+        CHECK(ast.settings == before, "tapping twice restores the toggle");
+    }
+    CHECK(settings_row_at(HEADER_H + 20) == 0, "row 0 hit-box starts at the top");
+
+    /* ── music transport ── */
+    app_state_reset();
+    CHECK(ast.music_playing == 0, "music starts paused");
+    music_toggle();
+    {
+        int p0 = ast.music_pos;
+        music_tick();
+        CHECK(ast.music_pos == p0 + 2, "TICK advances the track while playing");
+        music_toggle();
+        music_tick();
+        CHECK(ast.music_pos == p0 + 2, "TICK is a no-op while paused");
+    }
 
     printf("zircapp host: %d checks, %d failed\n", checks, fails);
     return fails ? 1 : 0;

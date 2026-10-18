@@ -19,6 +19,11 @@ No Google services. No sign-in required.
 - **Extensible** — write apps in C, Rust, Python.
 - **Built-in apps** — Phone, SMS, Settings, Camera, Clock, Calculator, Music.
   Gallery, Browser, Notes, Files, Terminal, Weather, About, Notifications.
+- **Real app screens** — ZircApp hosts each built-in app on its own screen:
+  a seven-segment Clock that reads the CMOS RTC, a working integer
+  Calculator, a Phone dial pad, Notes, an in-app Terminal, Music,
+  Settings toggles, Gallery, SMS, Weather, Browser, Camera and About
+  (kernel version + clock), all over the same fd 3/4 frame protocol.
 - **OpenWeb browser** — Rust-powered HTTP + HTML rendering (libow_http.a), no WebKit.
 - **Packaged userland** — every part of the OS is a package under `pkgs/`.
 
