@@ -2,7 +2,7 @@
 #include <zircapp.h>
 #include <windows.h>
 #include <widgets.h>
-#include <phone.h>
+#include <kall.h>
 #include <sms.h>
 #include <settings.h>
 #include <camera.h>
@@ -31,7 +31,7 @@ static void home_init(struct zircapp_app *app) {
         return;
     app->win_id = gui_window_create(0, 0, zircapp_phone_get_width(), zircapp_phone_get_height(), "Home");
     /* Register all phone apps */
-    zircapp_register(&phone_app);
+    zircapp_register(&kall_app);
     zircapp_register(&sms_app);
     zircapp_register(&settings_app);
     zircapp_register(&camera_app);
@@ -62,8 +62,8 @@ static void home_event(struct zircapp_app *app, const zircapp_event_t *ev) {
         if (row == 0) {
             /* Top row: quick launch */
             if (col == 0) {
-                /* Phone */
-                printf("home: launching Phone\n");
+                /* Kall */
+                printf("home: launching Kall\n");
             } else if (col == 1) {
                 /* SMS */
                 printf("home: launching SMS\n");

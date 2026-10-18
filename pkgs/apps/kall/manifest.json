@@ -1,7 +1,7 @@
 {
-  "name": "phone",
+  "name": "kall",
   "version": "1.0.0",
-  "description": "Zircon Phone dialer and in-call screen",
+  "description": "Zircon Kall dialer and in-call screen",
   "license": "MIT",
   "type": "source",
   "category": "Apps",
@@ -9,6 +9,6 @@
     "gui",
     "zircapp"
   ],
-  "install_path": "/apps/phone",
+  "install_path": "/apps/kall",
   "source": "src/"
 }

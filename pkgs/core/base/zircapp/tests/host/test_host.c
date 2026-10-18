@@ -90,10 +90,10 @@ static void probe_event(struct zircapp_app *app, const zircapp_event_t *ev) {
     if (ev->type == ZIRCAPP_EVENT_KEY_DOWN)   key_downs++;
 }
 
-static int phone_init_calls;
-static void phone_init(struct zircapp_app *app) { (void)app; phone_init_calls++; }
-static zircapp_app_t phone_app = {
-    .name = "Phone", .init = phone_init, .event = probe_event,
+static int kall_init_calls;
+static void kall_init(struct zircapp_app *app) { (void)app; kall_init_calls++; }
+static zircapp_app_t kall_app = {
+    .name = "Kall", .init = kall_init, .event = probe_event,
 };
 
 /* One child is enough: the host's job is launch/back, not the fan-out. */
@@ -101,7 +101,7 @@ static int home_init_calls;
 static void home_init(struct zircapp_app *app) {
     (void)app;
     home_init_calls++;
-    zircapp_register(&phone_app);
+    zircapp_register(&kall_app);
 }
 zircapp_app_t home_app = {
     .name = "Home", .init = home_init, .event = probe_event,
@@ -194,19 +194,19 @@ int main(void) {
     CHECK(mode == MODE_APP && active_app == 0, "click on the Home cell launches index 0");
     CHECK(touches == 2, "the press is broadcast to every registered app");
 
-    /* ── second cell -> Phone, and its init runs ── */
-    phone_init_calls = 0;
+    /* ── second cell -> Kall, and its init runs ── */
+    kall_init_calls = 0;
     reset_state();
     feed_conn(4);
-    feed_mouse(4, 210, 60, 1);     /* cell 1 = Phone */
+    feed_mouse(4, 210, 60, 1);     /* cell 1 = Kall */
     pump_events();
-    CHECK(mode == MODE_APP && active_app == 1, "click on the Phone cell launches index 1");
-    CHECK(phone_init_calls == 1, "launch runs the app init()");
+    CHECK(mode == MODE_APP && active_app == 1, "click on the Kall cell launches index 1");
+    CHECK(kall_init_calls == 1, "launch runs the app init()");
 
     /* ── Esc goes back; a second Esc closes the window ── */
     reset_state();
     feed_conn(5);
-    feed_mouse(5, 210, 60, 1);     /* launch Phone -> MODE_APP */
+    feed_mouse(5, 210, 60, 1);     /* launch Kall -> MODE_APP */
     feed_key(5, 27);               /* Esc -> back to the grid */
     pump_events();
     CHECK(mode == MODE_HOME && active_app == -1, "Esc from an app returns to the grid");
@@ -238,7 +238,7 @@ int main(void) {
     /* ── a partially-arrived record must not be dispatched ── */
     reset_state();
     feed_conn(8);
-    feed_mouse(8, 210, 60, 1);     /* launch Phone -> MODE_APP */
+    feed_mouse(8, 210, 60, 1);     /* launch Kall -> MODE_APP */
     feed[feed_n++] = WM_EVENT_KEY; feed[feed_n++] = 8;
     feed[feed_n++] = 27; feed[feed_n++] = 0;   /* only 4 of 6 bytes */
     pump_events();
@@ -295,11 +295,11 @@ int main(void) {
     term_input('c'); term_input('l'); term_input('e'); term_input('a'); term_input('r'); term_input('\r');
     CHECK(ast.term_cnt == 0, "clear wipes the scrollback");
 
-    /* ── phone: the click path through the real host routes to the pad ── */
+    /* ── kall: the click path through the real host routes to the pad ── */
     reset_state();
     app_state_reset();
     feed_conn(9);
-    feed_mouse(9, 210, 60, 1);   /* launch Phone            */
+    feed_mouse(9, 210, 60, 1);   /* launch Kall             */
     feed_mouse(9, 200, 240, 1);  /* dial pad: row 1, col 1  */
     pump_events();
     CHECK(!strcmp(ast.dial, "5"), "a dial pad click types the digit");

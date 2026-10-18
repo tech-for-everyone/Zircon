@@ -138,7 +138,7 @@ ZC_CFLAGS = -I$(ZC_PKGS)/core/base/zircapp/port \
             $(USER_CFLAGS) -Wno-error
 ZC_OBJS = zircapp_host.o zircapp_platform.o zircapp_ow_stub.o \
           zc_zircapp.o zc_windows.o \
-          zc_home.o zc_phone.o zc_sms.o zc_settings.o zc_camera.o \
+          zc_home.o zc_kall.o zc_sms.o zc_settings.o zc_camera.o \
           zc_clock.o zc_calculator.o zc_music.o zc_gallery.o zc_browser.o \
           zc_notes.o zc_files.o zc_terminal.o zc_weather.o zc_about.o \
           zc_notifications.o
@@ -147,7 +147,7 @@ zircapp: $(PKG_SRC)/zircapp/src/zircapp.c \
          $(PKG_SRC)/zircapp/src/zircapp_platform.c \
          $(PKG_SRC)/zircapp/src/zircapp_ow_stub.c \
          $(ZC_PKGS)/core/base/zircapp/src/zircapp.c $(ZC_PKGS)/core/base/gui/src/windows.c \
-         $(ZC_PKGS)/apps/home/src/home.c $(ZC_PKGS)/apps/phone/src/phone.c \
+         $(ZC_PKGS)/apps/home/src/home.c $(ZC_PKGS)/apps/kall/src/kall.c \
          $(ZC_PKGS)/apps/sms/src/sms.c $(ZC_PKGS)/apps/settings/src/settings.c \
          $(ZC_PKGS)/apps/camera/src/camera.c $(ZC_PKGS)/apps/clock/src/clock.c \
          $(ZC_PKGS)/apps/calculator/src/calculator.c $(ZC_PKGS)/apps/music/src/music.c \
@@ -163,7 +163,7 @@ zircapp: $(PKG_SRC)/zircapp/src/zircapp.c \
 	$(CC) $(ZC_CFLAGS) -c -o zc_zircapp.o $(ZC_PKGS)/core/base/zircapp/src/zircapp.c
 	$(CC) $(ZC_CFLAGS) -c -o zc_windows.o $(ZC_PKGS)/core/base/gui/src/windows.c
 	$(CC) $(ZC_CFLAGS) -c -o zc_home.o $(ZC_PKGS)/apps/home/src/home.c
-	$(CC) $(ZC_CFLAGS) -c -o zc_phone.o $(ZC_PKGS)/apps/phone/src/phone.c
+	$(CC) $(ZC_CFLAGS) -c -o zc_kall.o $(ZC_PKGS)/apps/kall/src/kall.c
 	$(CC) $(ZC_CFLAGS) -c -o zc_sms.o $(ZC_PKGS)/apps/sms/src/sms.c
 	$(CC) $(ZC_CFLAGS) -c -o zc_settings.o $(ZC_PKGS)/apps/settings/src/settings.c
 	$(CC) $(ZC_CFLAGS) -c -o zc_camera.o $(ZC_PKGS)/apps/camera/src/camera.c
