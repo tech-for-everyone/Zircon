@@ -3,7 +3,7 @@
 /* The color palette (C_BASE, C_MAUVE, ...) lives in the canonical panel
  * header; kernel/kernel/windows.h only defines window_t for Zircon and
  * would shadow the unqualified "windows.h" include. */
-#include "../../../pkgs/core/panels/src/windows.h"
+#include "../../pkgs/core/panels/src/windows.h"
 #include "string.h"
 #include "pixelman.h"
 #include "version.h"

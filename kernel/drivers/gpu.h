@@ -2,6 +2,6 @@
 #define CODEOS_GPU_COMPAT_H
 
 /* Compatibility include for code that still references kernel/drivers. */
-#include "../../../pkgs/core/graphics/src/gpu.h"
+#include "../../pkgs/core/graphics/src/gpu.h"
 
 #endif

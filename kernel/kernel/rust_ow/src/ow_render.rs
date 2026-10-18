@@ -24,21 +24,24 @@ const OW_TXT_LINES: usize = 512;
 const OW_TXT_COLS: usize = 120;
 const OW_MAX_LINKS: usize = 128;
 const OW_MAX_IMAGES: usize = 32;
-const OW_URL_MAX: usize = 512;
-const OW_MAX_FORMS: usize = 8;
-const OW_MAX_FIELDS: usize = 40;
-const OW_MAX_SELECT_OPTS: usize = 16;
-const OW_SELECT_OPT_SZ: usize = 56;
+/* OW_URL_MAX / OW_MAX_FORMS / OW_MAX_FIELDS / OW_MAX_SELECT_OPTS /
+ * OW_SELECT_OPT_SZ are shared with the form API in `ow_form.rs`, so they are
+ * visible to the whole crate (see the matching C contract in ow_html.h). */
+pub(crate) const OW_URL_MAX: usize = 512;
+pub(crate) const OW_MAX_FORMS: usize = 8;
+pub(crate) const OW_MAX_FIELDS: usize = 40;
+pub(crate) const OW_MAX_SELECT_OPTS: usize = 16;
+pub(crate) const OW_SELECT_OPT_SZ: usize = 56;
 
 /* ── field types (ow_html.h) ── */
-const OW_FT_TEXT: u8 = 0;
-const OW_FT_PASSWORD: u8 = 1;
-const OW_FT_SUBMIT: u8 = 2;
-const OW_FT_BUTTON: u8 = 3;
-const OW_FT_CHECKBOX: u8 = 4;
-const OW_FT_RADIO: u8 = 5;
-const OW_FT_TEXTAREA: u8 = 6;
-const OW_FT_SELECT: u8 = 7;
+pub(crate) const OW_FT_TEXT: u8 = 0;
+pub(crate) const OW_FT_PASSWORD: u8 = 1;
+pub(crate) const OW_FT_SUBMIT: u8 = 2;
+pub(crate) const OW_FT_BUTTON: u8 = 3;
+pub(crate) const OW_FT_CHECKBOX: u8 = 4;
+pub(crate) const OW_FT_RADIO: u8 = 5;
+pub(crate) const OW_FT_TEXTAREA: u8 = 6;
+pub(crate) const OW_FT_SELECT: u8 = 7;
 
 /* ── line types (ow_html.h) ── */
 const OW_LT_NORMAL: u8 = 0;
@@ -58,6 +61,7 @@ const OW_LT_BOLD: u8 = 13;
 const OW_LT_ITALIC: u8 = 14;
 const OW_LT_CODE: u8 = 15;
 const OW_LT_IMAGE: u8 = 16;
+const OW_LT_PRE: u8 = 17;
 
 /* ── output structures — must match ow_html.h exactly ── */
 #[repr(C)]
@@ -86,26 +90,26 @@ struct OwLineInfo {
 }
 
 #[repr(C)]
-struct OwForm {
-    action: [u8; OW_URL_MAX],
-    method: u8,
-    field_start: u8,
-    field_count: u8,
+pub(crate) struct OwForm {
+    pub(crate) action: [u8; OW_URL_MAX],
+    pub(crate) method: u8,
+    pub(crate) field_start: u8,
+    pub(crate) field_count: u8,
 }
 
 #[repr(C)]
-struct OwFormField {
-    typ: u8,
-    form: c_int,
-    name: [u8; OW_URL_MAX],
-    value: [u8; OW_URL_MAX],
-    line: c_int,
-    col: c_int,
-    width: c_int,
-    checked: u8,
-    opt_cnt: u8,
-    opt_sel: u8,
-    opts: [[u8; OW_SELECT_OPT_SZ]; OW_MAX_SELECT_OPTS],
+pub(crate) struct OwFormField {
+    pub(crate) typ: u8,
+    pub(crate) form: c_int,
+    pub(crate) name: [u8; OW_URL_MAX],
+    pub(crate) value: [u8; OW_URL_MAX],
+    pub(crate) line: c_int,
+    pub(crate) col: c_int,
+    pub(crate) width: c_int,
+    pub(crate) checked: u8,
+    pub(crate) opt_cnt: u8,
+    pub(crate) opt_sel: u8,
+    pub(crate) opts: [[u8; OW_SELECT_OPT_SZ]; OW_MAX_SELECT_OPTS],
 }
 
 /* Globals owned by qt6/panels/ow_html.c — written here, read by the Qt
@@ -121,13 +125,18 @@ extern "C" {
     static mut ow_line_info: [OwLineInfo; OW_TXT_LINES];
     static mut ow_line_img: [c_int; OW_TXT_LINES];
     static mut ow_page_title: [u8; OW_URL_MAX];
-    static mut ow_forms: [OwForm; OW_MAX_FORMS];
-    static mut ow_form_cnt: c_int;
-    static mut ow_form_fields: [OwFormField; OW_MAX_FIELDS];
-    static mut ow_field_cnt: c_int;
+    /* <meta name="description"> / og:description, same contract as the
+     * title: written here, read by the Qt frontend. */
+    static mut ow_page_desc: [u8; OW_URL_MAX];
+    /* The form tables are shared with the Rust form API in `ow_form.rs`
+     * (ow_field_set_value/toggle/at, ow_form_build_query, edit cache). */
+    pub(crate) static mut ow_forms: [OwForm; OW_MAX_FORMS];
+    pub(crate) static mut ow_form_cnt: c_int;
+    pub(crate) static mut ow_form_fields: [OwFormField; OW_MAX_FIELDS];
+    pub(crate) static mut ow_field_cnt: c_int;
 
-    /* Field-value edit cache lives in C (ow_html.c); the renderer delegates
-     * identity-check + restore/store to it exactly like the old C renderer. */
+    /* Field-value edit cache is now implemented in Rust (`ow_form.rs`); the
+     * renderer still calls it through this C-ABI bridge, unchanged. */
     fn ow_fv_restore(f: *mut OwFormField, fi: c_int);
     fn ow_fv_store(f: *const OwFormField, fi: c_int);
 }
@@ -467,6 +476,9 @@ struct St {
     in_pre: bool,
     in_title: bool,
     in_row: bool,
+    in_thead: bool,
+    in_tbody: bool,
+    in_tfoot: bool,
     cell_count: i32,
     blockquote_depth: i32,
 }
@@ -497,6 +509,9 @@ impl St {
             in_pre: false,
             in_title: false,
             in_row: false,
+            in_thead: false,
+            in_tbody: false,
+            in_tfoot: false,
             cell_count: 0,
             blockquote_depth: 0,
         }
@@ -808,6 +823,7 @@ pub extern "C" fn ow_render_rs(html: *const c_char, len: c_int) {
         ow_link_cnt = 0;
         ow_image_cnt = 0;
         ow_page_title[0] = 0;
+        ow_page_desc[0] = 0;
         ow_form_cnt = 0;
         ow_field_cnt = 0;
     }
@@ -861,9 +877,53 @@ pub extern "C" fn ow_render_rs(html: *const c_char, len: c_int) {
                 i = skip_tag_end(html, i);
                 continue;
             }
+            /* ── <meta> extraction (description, og:title fallback) ── */
+            if tag_match(html, i, b"meta") == 1 {
+                let mut attrs = [Attr {
+                    name: [0; 16],
+                    value: [0; OW_URL_MAX],
+                }; MAX_ATTR];
+                let na = parse_attrs(html, i + 1, &mut attrs);
+                let mut key: &[u8] = b"";
+                let mut content: &[u8] = b"";
+                for k in 0..na {
+                    let (name, value) = (cstr(&attrs[k].name), cstr(&attrs[k].value));
+                    if name == b"name" || name == b"property" {
+                        key = value;
+                    } else if name == b"content" {
+                        content = value;
+                    }
+                }
+                if !content.is_empty() {
+                    /* Description: og/twitter win over the plain name= one,
+                     * and once set they are never downgraded. */
+                    let is_desc = key == b"description"
+                        || key == b"og:description"
+                        || key == b"twitter:description";
+                    if is_desc {
+                        let cur_empty = unsafe { ow_page_desc[0] == 0 };
+                        let strong = key != b"description";
+                        if cur_empty || strong {
+                            unsafe {
+                                cpy(&mut ow_page_desc, content);
+                            }
+                        }
+                    }
+                    /* Title fallback when the page has no <title> (or an
+                     * empty one): og:title / twitter:title. */
+                    if key == b"og:title" || key == b"twitter:title" {
+                        unsafe {
+                            if ow_page_title[0] == 0 && !content.is_empty() {
+                                cpy(&mut ow_page_title, content);
+                            }
+                        }
+                    }
+                }
+                i = skip_tag_end(html, i);
+                continue;
+            }
             if tag_match_exact(html, i, b"head") != 0
                 || tag_match(html, i, b"base") == 1
-                || tag_match(html, i, b"meta") == 1
                 || tag_match(html, i, b"link") == 1
                 || tag_match(html, i, b"source") == 1
                 || tag_match(html, i, b"wbr") == 1
@@ -1044,6 +1104,22 @@ pub extern "C" fn ow_render_rs(html: *const c_char, len: c_int) {
                         ow_txt_lines = (ln + 1) as c_int;
                     }
                 }
+                i = skip_tag_end(html, i);
+                continue;
+            }
+
+            /* ── preformatted text ── */
+            if tag_match_exact(html, i, b"pre") == 1 {
+                st.in_pre = true;
+                st.flush_buf();
+                St::add_blank_line();
+                i = skip_tag_end(html, i);
+                continue;
+            }
+            if tag_match_exact(html, i, b"pre") == 2 {
+                st.in_pre = false;
+                st.flush_buf();
+                St::add_blank_line();
                 i = skip_tag_end(html, i);
                 continue;
             }
@@ -1268,6 +1344,55 @@ pub extern "C" fn ow_render_rs(html: *const c_char, len: c_int) {
                 continue;
             }
             if tag_match_exact(html, i, b"table") == 2 {
+
+/* ── thead ── */
+            if tag_match(html, i, b"thead") == 1 {
+                st.flush_buf();
+                St::add_blank_line();
+                st.in_thead = true;
+                i = skip_tag_end(html, i);
+                continue;
+            }
+            if tag_match_exact(html, i, b"thead") == 2 {
+                st.flush_buf();
+                St::add_blank_line();
+                st.in_thead = false;
+                i = skip_tag_end(html, i);
+                continue;
+            }
+
+/* ── tbody ── */
+            if tag_match(html, i, b"tbody") == 1 {
+                st.flush_buf();
+                St::add_blank_line();
+                st.in_tbody = true;
+                i = skip_tag_end(html, i);
+                continue;
+            }
+            if tag_match_exact(html, i, b"tbody") == 2 {
+                st.flush_buf();
+                St::add_blank_line();
+                st.in_tbody = false;
+                i = skip_tag_end(html, i);
+                continue;
+            }
+
+/* ── tfoot ── */
+            if tag_match(html, i, b"tfoot") == 1 {
+                st.flush_buf();
+                St::add_blank_line();
+                st.in_tfoot = true;
+                i = skip_tag_end(html, i);
+                continue;
+            }
+            if tag_match_exact(html, i, b"tfoot") == 2 {
+                st.flush_buf();
+                St::add_blank_line();
+                st.in_tfoot = false;
+                i = skip_tag_end(html, i);
+                continue;
+            }
+
                 st.flush_buf();
                 St::add_blank_line();
                 st.in_row = false;
@@ -1321,6 +1446,12 @@ pub extern "C" fn ow_render_rs(html: *const c_char, len: c_int) {
                 continue;
             }
             if tag_match(html, i, b"th") == 2 || tag_match(html, i, b"td") == 2 {
+                st.flush_buf();
+                if st.in_row {
+                    st.in_row = false;
+                    st.cell_count = 0;
+                    st.cell_type = OW_LT_NORMAL;
+                }
                 i = skip_tag_end(html, i);
                 continue;
             }

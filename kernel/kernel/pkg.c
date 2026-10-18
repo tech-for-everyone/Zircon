@@ -497,6 +497,7 @@ const pkg_repo_t pkg_repo_dev[] = {
     {"rustc", "1.70.0", "Rust compiler", "", "MIT/Apache2", 73400320, 0, 0, 0, 0, 0, 0, 0, 2},
     {"perl", "5.36.0", "Perl programming language", "", "GPLv2", 8388608, 0, 0, 0, 0, 0, 0, 0, 2},
     {"lua", "5.4.6", "Lua scripting language", "", "MIT", 524288, 0, 0, 0, 0, 0, 0, 0, 2},
+    {"bas", "0.1.0", "bas systems language compiler (C-style syntax, Rust-inspired ownership, emits C)", "https://github.com/CodeOS-Comunity/bas", "MIT", 8388608, 0, 0, 0, 0, 0, 0, 0, 2},
     {"openssl", "3.0.5", "Cryptography and TLS toolkit", "", "Apache2.0", 2621440, (const char*[]){"zlib", 0}, 1, 0, 0, 0, 0, 0, 3},
     {"zip", "3.0", "ZIP compression utility", "", "BSD", 294912, (const char*[]){"zlib", 0}, 1, 0, 0, 0, 0, 0, 6},
     {"unzip", "6.0", "ZIP extraction utility", "", "BSD", 262144, 0, 0, 0, 0, 0, 0, 0, 6},
@@ -1673,6 +1674,22 @@ int pkg_find_in_repos(const char *name, int *repo_idx, int *pkg_idx) {
         }
     }
     return -1;
+}
+
+/* ── Remote (network-discovered) package accessors ──
+ * pkg_repo_update() fills the dynamic remote_repo[] table by parsing the
+ * pkg.index served by each enabled http(s) repository. The static tables
+ * (pkg_repo_core..pkg_repo_android) are exported directly, but this one is
+ * file-local, so the Qt DevStore needs a read-only view of it to list what a
+ * sync discovered — packages whose Install genuinely transfers a .stone over
+ * the network (see pkg_fetch's REMOTE_REPO_IDX branch). */
+int pkg_remote_count(void) {
+    return remote_count;
+}
+
+const pkg_repo_t *pkg_remote_at(int idx) {
+    if (idx < 0 || idx >= remote_count) return NULL;
+    return &remote_repo[idx];
 }
 
 /* ── Transaction log ── */

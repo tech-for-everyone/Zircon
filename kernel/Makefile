@@ -157,12 +157,16 @@ SRC_C   += $(QT_BACKEND_DIR)/lgame.c
 SRC_C   += $(QT_BACKEND_DIR)/lgame_pong.c
 SRC_C   += $(QT_BACKEND_DIR)/lgame_snake.c
 SRC_C   += $(QT_BACKEND_DIR)/lgame_rooms.c
-# devstore.c is listed explicitly because it is not in any build otherwise.
-# It stayed broken for a long time (C++ syntax in a .c file, undefined fb_*
-# helpers, undeclared colours) precisely because nothing compiled it, so
-# nothing noticed. Compiling it keeps it honest even though the Qt panel
-# layer, not the legacy C panel, is what the desktop currently draws.
-SRC_C   += $(QT_BACKEND_DIR)/devstore.c
+# The legacy C devstore.c panel is gone from CodeOS -- the Qt panel under
+# qt6/panels is the sole source of truth now (see the CodeOS AGENTS.md item
+# "Drop stale duplicates under kernel/kernel/"), and nothing references its
+# symbols, so the vendored build no longer compiles it either.
+#
+# The DevStore fetch inner-workings (the CodeOS-native curl alternative:
+# http_get + pkg_* instead of curl/sudo installer). It is called by the live
+# Qt DevStore panel under qt6/panels, and listed here because panels/src is
+# not in KERN's auto-discovery.
+SRC_C   += $(QT_BACKEND_DIR)/fetch.c
 SRC_C   += kernel/x11_server.c kernel/x11_stubs.c
     SRC_CXX = kernel/cxx_support.cpp kernel/stdcxx_support.cpp kernel/xserver.cpp arch/fb.cpp \
               arch/cursor_theme.cpp \
@@ -265,7 +269,7 @@ QT6_APP_OBJS = $(addprefix $(QT6_PANELS_DIR)/, \
     terminal.o app_host.o calc.o settings.o \
     about.o sys_info.o exit.o \
     sys_mon.o explorer.o \
-    netbeam.o ziggy.o notes.o clock.o convert.o)
+    netbeam.o ziggy.o notes.o clock.o convert.o devstore.o)
 
 # Qt application sources live in pkgs/extra/qt_apps; their objects remain
 # with the Qt frontend so the linker and incremental builds stay simple.
