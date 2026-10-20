@@ -2,15 +2,6 @@
 ARCH ?= x86_64
 export ARCH
 
-# This kernel tree lives inside the Zircon submodule (Zircon/kernel/), one
-# directory deeper than the CodeOS kernel it was vendored from.  Everything the
-# kernel borrows from CodeOS -- include/, src/, pkgs/, qt6/, userspace/,
-# Openweb/ -- is therefore two levels up, not one.  CODEOS_ROOT names that
-# root so the same sources build from either location; ZROOT is this kernel's
-# own Zircon root (../), which owns build/ (zircon_init, zircond, the ISO).
-CODEOS_ROOT ?= $(abspath $(CURDIR)/../..)
-ZROOT ?= $(abspath $(CURDIR)/..)
-
 ifeq ($(ARCH),arm64)
     QEMU = qemu-system-aarch64
     QEMU_MEM = -m 512M
@@ -26,7 +17,7 @@ ifeq ($(ARCH),arm64)
     CFLAGS = -ffreestanding -mcmodel=large -fno-stack-protector -fno-PIC \
              -nostdlib -nostartfiles -nodefaultlibs \
              -Wall -Wextra -O2 -g -MMD -MP \
-             -I. -I./kernel -I./drivers -I$(CODEOS_ROOT)/include -Iarch/arm64
+             -I. -I./kernel -I./drivers -I../include -I../../include -Iarch/arm64
     CXXFLAGS = $(CFLAGS) -std=gnu++20 -fno-exceptions -fno-rtti -fno-use-cxa-atexit
     LDFLAGS = -nostdlib -z max-page-size=0x1000
 
@@ -91,7 +82,7 @@ else
     # Just touch pkgs/core/mypackage/src/KERN to inject your package
     # The legacy C/C++ panels package has been superseded by qt6/panels.
     # Keep other kernel-injected packages, but do not link a second GUI.
-    KERN_PKG_DIRS = $(filter-out $(CODEOS_ROOT)/pkgs/core/panels/src/,$(sort $(dir $(wildcard $(CODEOS_ROOT)/pkgs/core/*/src/KERN))))
+    KERN_PKG_DIRS = $(filter-out ../pkgs/core/panels/src/,$(sort $(dir $(wildcard ../pkgs/core/*/src/KERN))))
     PKG_DIRS = $(KERN_PKG_DIRS)
     ifneq ($(strip $(PKG_DIRS)),)
         PKG_SRC_C   = $(shell find $(PKG_DIRS) -name "*.c" -not -name "KERN" -not -name "*.d")
@@ -104,7 +95,6 @@ else
     endif
     # PixelMan is retained as the kernel compositor backend.  The old panel
     # widgets are intentionally not linked; Qt owns the desktop UI now.
-    QT_BACKEND_DIR = $(CODEOS_ROOT)/pkgs/core/panels/src
 
     # clang's builtin headers (stdint.h, stddef.h, stdarg.h, ...) are the
     # freestanding substitutes the x86_64-elf toolchain used to supply.  Pass
@@ -116,11 +106,12 @@ else
     CFLAGS = -ffreestanding -mcmodel=large -mno-red-zone -mno-mmx -mno-sse \
              -mno-sse2 -nostdlib -nostartfiles -nodefaultlibs \
              -fno-stack-protector -fno-PIC \
- -Wall -Wextra -O2 -g -MMD -MP -ffunction-sections -fdata-sections \
+ -Wall -Wextra -O3 -g -MMD -MP -ffunction-sections -fdata-sections \
+             -fomit-frame-pointer -fno-semantic-interposition -fno-math-errno \
               -nostdinc -I$(CLANG_RESOURCE_INCLUDE) \
-              -I. -I./kernel -I./kernel/security -I./drivers -I$(CODEOS_ROOT)/include -Iarch/x86_64 \
+              -I. -I./kernel -I./kernel/security -I./drivers -I../include -I../../include -Iarch/x86_64 \
               -DLV_CONF_INCLUDE_SIMPLE -I./lvgl -isystem ./lvgl/shim \
-              $(PKG_INCLUDES) -I$(QT_BACKEND_DIR) $(OPENWEB_INCLUDES) $(OPENSSL_CFLAGS)
+              $(PKG_INCLUDES) -I $(OPENWEB_INCLUDES) $(OPENSSL_CFLAGS)
     # Match what GCC 16 produced here: C23 for C, (GNU) C++20 for C++.  Clang's
     # defaults are older (gnu17 / gnu++17) and would otherwise build the same
     # sources with different semantics.  CFLAGS carries no -std; only CXXFLAGS
@@ -129,16 +120,15 @@ else
     LDFLAGS = -nostdlib -z max-page-size=0x1000 -z noexecstack -no-pie --gc-sections
     USER_CFLAGS = -ffreestanding -mno-red-zone -mno-mmx -mno-sse -mno-sse2 \
                   -nostdlib -nostartfiles -fno-stack-protector -fno-PIC \
-                  -Wall -Wextra -O2 -g -I./userspace/include
+                  -Wall -Wextra -O3 -g -I./userspace/include
     USER_LDFLAGS = -nostdlib -z max-page-size=0x1000 -z noexecstack
 
     # Kernel infrastructure (stays in kernel/)
     SRC_C = $(shell find kernel drivers lvgl -name "*.c" \
         -not -path "kernel/gui/*" \
-        -not -path "*/devstore/*" -not -name "initramfs_files.c" \
+        -not -name "initramfs_files.c" \
         -not -path "arch/arm64/*" -not -name "ahci.c" \
-        -not -path "*/examples/*" -not -name "x11_server.c" \
-        -not -name "x11_stubs.c" \
+        -not -path "*/examples/*" -not -name "x11_server.c" -not -name "x11_stubs.c" -not -name "zdm.c" -not -name "xora.c" -not -name "tcp.c" -not -name "pkg.c" -not -name "netstat.c" -not -name "ip.c" -not -name "net.c" -not -name "bootsplash.c" -not -name "https_certs.c" -not -name "ws.c" -not -name "shell.c" -not -name "shell_stubs.c" -not -name "pixelman_stubs.c" -not -name "clamav.c" -not -name "fb.cpp" -not -name "fb.c" -not -name "qt_desktop.cpp" \
         -not -path "lvgl/src/draw/sdl/*" \
         -not -path "lvgl/src/draw/stm32_dma2d/*" \
         -not -path "lvgl/src/draw/renesas/*" \
@@ -152,26 +142,38 @@ else
 
     # Package sources (auto-discovered from pkgs/core/*/src/)
 SRC_C   += $(PKG_SRC_C)
-SRC_C   += $(QT_BACKEND_DIR)/updater.c
-SRC_C   += $(QT_BACKEND_DIR)/lgame.c
-SRC_C   += $(QT_BACKEND_DIR)/lgame_pong.c
-SRC_C   += $(QT_BACKEND_DIR)/lgame_snake.c
-SRC_C   += $(QT_BACKEND_DIR)/lgame_rooms.c
-# The legacy C devstore.c panel is gone from CodeOS -- the Qt panel under
-# qt6/panels is the sole source of truth now (see the CodeOS AGENTS.md item
-# "Drop stale duplicates under kernel/kernel/"), and nothing references its
-# symbols, so the vendored build no longer compiles it either.
-#
-# The DevStore fetch inner-workings (the CodeOS-native curl alternative:
-# http_get + pkg_* instead of curl/sudo installer). It is called by the live
-# Qt DevStore panel under qt6/panels, and listed here because panels/src is
-# not in KERN's auto-discovery.
-SRC_C   += $(QT_BACKEND_DIR)/fetch.c
-SRC_C   += kernel/x11_server.c kernel/x11_stubs.c
-    SRC_CXX = kernel/cxx_support.cpp kernel/stdcxx_support.cpp kernel/xserver.cpp arch/fb.cpp \
+
+SRC_C   += kernel/x11_server.c kernel/x11_stubs.c kernel/shell_stubs.c kernel/pixelman_stubs.c
+
+# kernel/net_stubs.c answers the socket/UDP layer's calls into the network
+# stack Zircon does not have.  It only became live when the SYSCALL MSRs were
+# turned on (kernel/kernel/main.c): until then the syscall dispatcher was dead
+# code that --gc-sections dropped, and with it every reference to these
+# symbols.  It is picked up by the `find` above like any other kernel source,
+# so it is NOT listed here -- doing that linked the object twice.
+
+    # kernel/qt_desktop.cpp is deliberately NOT here.
+    #
+    # The `find` above drops qt_desktop.cpp from the kernel sources, but this
+    # list is a fresh assignment, so anything named in it comes back
+    # regardless.  It was listed, and then collided with the Zircon
+    # substitute: kernel/qt_desktop.cpp defines panels_menubar_h, which
+    # kernel/zircon.c also defines, and the link failed with "multiple
+    # definition of panels_menubar_h".  Zircon has no Qt desktop -- the
+    # compositor in pkgs/ draws the UI -- so the file is dropped rather than
+    # the substitute removed.
+    #
+    # arch/fb.cpp IS here, and has to be: it is the framebuffer implementation
+    # (fb_init, fb_fill, fb_get_pitch, the cursor entry points) that limine.c,
+    # main.c, user_wm.c and lvgl_port.c all call.  Dropping it turns those
+    # into undefined references.  The duplicate that made it look like a
+    # conflict was fb_drawstr_px alone, which kernel/pixelman_stubs.c also
+    # defined; the stub file no longer defines it.
+    SRC_CXX = kernel/cxx_support.cpp kernel/stdcxx_support.cpp kernel/xserver.cpp \
+              arch/fb.cpp \
               arch/cursor_theme.cpp \
-              kernel/desktop.cpp kernel/qt_desktop.cpp \
-              $(QT_BACKEND_DIR)/pixelman.cpp $(PKG_SRC_CXX)
+              kernel/desktop.cpp \
+              $(PKG_SRC_CXX)
     SRC_ASM = $(shell find arch -maxdepth 1 -name "*.S")
     TARGET = codeos-1-kernel.bin
     LDSCRIPT = linker.ld
@@ -181,14 +183,14 @@ endif
 
 # Jengine is part of the native runtime so kernel-rendered pages and other
 # CodeOS components use the same evaluator as the calculator APIs.
-SRC_C += $(CODEOS_ROOT)/src/jengine.c
+SRC_C += ../../src/jengine.c
 
 # OpenWeb is an optional checkout.  Search the common sibling locations and
 # only add an include directory when it really exists; a stale absolute path
 # otherwise makes clean builds fail on every other machine.
 OPENWEB_LITEHTML_DIR ?= $(firstword $(wildcard \
-    $(CODEOS_ROOT)/Openweb/litehtml/include \
-    $(CODEOS_ROOT)/Openweb/eclipse/litehtml/include \
+    ../Openweb/litehtml/include \
+    ../Openweb/eclipse/litehtml/include \
     /usr/include/litehtml))
 ifneq ($(strip $(OPENWEB_LITEHTML_DIR)),)
     OPENWEB_INCLUDES = -I$(OPENWEB_LITEHTML_DIR)
@@ -201,7 +203,7 @@ endif
 # BSD-socket or hosted-libc dependency.  The static archives are produced by
 # the freestanding OpenSSL build (see pkgs/core/openssl/README); when they are
 # present we enable the OpenSSL https_get path and link libcrypto/libssl.
-OPENSSL_LIBDIR ?= $(CODEOS_ROOT)/pkgs/core/openssl/lib
+OPENSSL_LIBDIR ?= ../pkgs/core/openssl/lib
 OPENSSL_LIBS := $(wildcard $(OPENSSL_LIBDIR)/libcrypto.a $(OPENSSL_LIBDIR)/libssl.a)
 ifneq ($(strip $(OPENSSL_LIBS)),)
     OPENSSL_CFLAGS = -DHTTPS_USE_OPENSSL=1
@@ -215,8 +217,8 @@ endif
 # package's freestanding sysroot (freestd) first, otherwise mbedtls's minimal
 # shims shadow it.  This include ordering applies ONLY to these two objects --
 # never to the rest of the kernel.
-$(CODEOS_ROOT)/pkgs/core/openssl/src/ossl_shim.o $(CODEOS_ROOT)/pkgs/core/openssl/src/ossl_https.o: \
-        CFLAGS := -I$(CODEOS_ROOT)/pkgs/core/openssl/freestd -I$(CODEOS_ROOT)/pkgs/core/openssl/freestd/sys $(CFLAGS)
+../pkgs/core/openssl/src/ossl_shim.o ../pkgs/core/openssl/src/ossl_https.o: \
+        CFLAGS := -I../pkgs/core/openssl/freestd -I../pkgs/core/openssl/freestd/sys $(CFLAGS)
 
 USER_PROGS = init shell csl zircapp zircon-notify zircon-clock zircon-info apk-parser android-container android-apps code-music linux-runner crosvm-launcher ncvm ld-codeos terminal syscall_test openweb wineserver wine-runner linux-probe run-as dnslookup leveltest netbeam android-launcher android-clock android-calculator android-settings android-dialer android-music android-browser android-camera android-calendar android-keyboard chromium-launcher
 USER_ELF = $(addprefix userspace/,$(USER_PROGS))
@@ -233,11 +235,11 @@ $(RUST_LIB): $(wildcard $(RUST_DIR)/src/*.rs) $(RUST_DIR)/Cargo.toml
 RUST_HD_DIR = kernel/hyperde
 RUST_HD_LIB = $(RUST_HD_DIR)/target/x86_64-unknown-none/release/libhyperde_shell.a
 
-$(RUST_HD_LIB): $(wildcard $(RUST_HD_DIR)/src/*.rs) $(RUST_HD_DIR)/Cargo.toml $(CODEOS_ROOT)/userspace/hyperde/conf.lua
+$(RUST_HD_LIB): $(wildcard $(RUST_HD_DIR)/src/*.rs) $(RUST_HD_DIR)/Cargo.toml ../../userspace/hyperde/conf.lua
 	cd $(RUST_HD_DIR) && PATH="$(RUST_TOOLCHAIN):$$PATH" cargo build --target x86_64-unknown-none --release
 
 # ── CDP Bridge for Chromium (runs in debian-minimal container) ──
-CDP_BRIDGE_SRC = $(CODEOS_ROOT)/pkgs/core/chromium-launcher/src/cdp_bridge.c
+CDP_BRIDGE_SRC = ../pkgs/core/chromium-launcher/src/cdp_bridge.c
 CDP_BRIDGE_BIN = disk/usr/local/bin/cdp_bridge
 
 $(CDP_BRIDGE_BIN): $(CDP_BRIDGE_SRC)
@@ -260,7 +262,7 @@ $(RUST_PR_LIB): $(RUST_PR_SRCS) $(RUST_PR_DIR)/Cargo.toml
 	cd $(RUST_PR_DIR) && PATH="$(RUST_TOOLCHAIN):$$PATH" cargo build --target x86_64-unknown-none --release
 
 # ── Qt6 Panel Objects ──
-QT6_DIR = $(CODEOS_ROOT)/qt6
+QT6_DIR = ../qt6
 QT6_PANELS_DIR = $(QT6_DIR)/panels
 QT6_SYSROOT = $(QT6_DIR)/sysroot/usr
 GCC_LIBDIR := $(dir $(shell $(CC) -print-libgcc-file-name 2>/dev/null))
@@ -292,7 +294,7 @@ QT6_PANELS_SRC = $(wildcard $(QT6_PANELS_DIR)/*.cpp) \
 # The stamp carries source-change information back to $(TARGET); the bare
 # object rule below only fires when an object file is missing entirely.
 QT6_PANELS_STAMP = $(QT6_PANELS_DIR)/.built.stamp
-QT6_PANELS_SRC := $(shell find $(QT6_DIR) $(CODEOS_ROOT)/pkgs/core/panels $(CODEOS_ROOT)/pkgs/extra/qt_apps \
+QT6_PANELS_SRC := $(shell find $(QT6_DIR) ../pkgs/core/panels ../pkgs/extra/qt_apps \
 	\( -name '*.cpp' -o -name '*.c' -o -name '*.h' \) 2>/dev/null) \
 	$(QT6_PANELS_DIR)/Makefile
 
@@ -317,21 +319,21 @@ ifeq ($(ARCH),arm64)
     RUST_PR_LIB :=
     QT6_OBJS :=
     QT6_LIBS :=
-    # Sources shared with the x86_64 build (kernel/kprintf.c, $(CODEOS_ROOT)/src/jengine.c)
+    # Sources shared with the x86_64 build (kernel/kprintf.c, ../../src/jengine.c)
     # are compiled under per-arch object names: this tree holds both archs'
     # artifacts side by side, and a stale cross-arch .o would otherwise get
     # linked into the arm64 image ("file in wrong format"). Each per-arch
     # object comes with its own -MMD dependency file via OBJ_ALL/DEPFILES.
     KPRINTF_OBJ = kernel/kprintf-arm64.o
-    JENGINE_OBJ = $(CODEOS_ROOT)/src/jengine-arm64.o
-    OBJ_ALL  := $(filter-out $(CODEOS_ROOT)/src/jengine.o,$(SRC_C:.c=.o)) \
+    JENGINE_OBJ = ../../src/jengine-arm64.o
+    OBJ_ALL  := $(filter-out ../../src/jengine.o,$(SRC_C:.c=.o)) \
                 $(SRC_CXX:.cpp=.o) $(SRC_ASM:.S=.o) \
                 $(KPRINTF_OBJ) $(JENGINE_OBJ)
 
 $(KPRINTF_OBJ): kernel/kprintf.c
 	$(CC) $(CFLAGS) -std=gnu23 -c $< -o $@
 
-$(JENGINE_OBJ): $(CODEOS_ROOT)/src/jengine.c
+$(JENGINE_OBJ): ../../src/jengine.c
 	$(CC) $(CFLAGS) -std=gnu23 -c $< -o $@
 endif
 
@@ -358,10 +360,10 @@ check:
 # fixtures. Kept here as a target so `make -C kernel codec-check` works; the
 # top-level `make check` runs the same script.
 codec-check:
-	@sh $(CODEOS_ROOT)/pkgs/core/codec/tests/run.sh
+	@sh ../pkgs/core/codec/tests/run.sh
 
 codec-fuzz-check:
-	@sh $(CODEOS_ROOT)/pkgs/core/codec/tests/fuzz.sh
+	@sh ../pkgs/core/codec/tests/fuzz.sh
 
 # Boots the ISO (with the pre-baked disk.img attached) into QEMU, then checks the
 # Bibata cursor loader and the rendered arrow probe against the theme files
@@ -479,8 +481,19 @@ kernel/embed_splash.o: bootloader/splash.png
 	$(LD_BINARY) -r -b binary -o $@ $<
 endif
 
-$(TARGET): $(PHASE1_OBJ) $(EMBED_OBJ) $(RUST_LIB) $(RUST_HD_LIB) $(RUST_PR_LIB) $(QT6_OBJS) $(QT6_PANELS_STAMP) $(LDSCRIPT)
-	$(LD) $(LDFLAGS) -T $(LDSCRIPT) -o $@ --start-group $(PHASE1_OBJ) $(EMBED_OBJ) --whole-archive $(QT6_OBJS) --no-whole-archive $(RUST_LIB) $(RUST_HD_LIB) $(RUST_PR_LIB) $(QT6_LIBS) $(OPENSSL_LDLIBS) --end-group
+# No Qt panels on the Zircon link.
+#
+# The CodeOS kernel links the Qt desktop *into the kernel image* (qt6/panels
+# is ../qt6/panels relative to CodeOS/kernel).  Zircon has no Qt desktop at
+# all -- its compositor is a userspace program under pkgs/core/base/compositor
+# -- and there is no qt6/ tree in the Zircon checkout, so the inherited
+# dependency fired `make -C ../qt6/panels` and failed with "No such file or
+# directory" before the link was even attempted.
+#
+# The arm64 branch below already does exactly this (QT6_OBJS := / QT6_LIBS :=),
+# because the arm64 bring-up has no desktop either.
+$(TARGET): $(PHASE1_OBJ) $(EMBED_OBJ) $(RUST_LIB) $(RUST_HD_LIB) $(RUST_PR_LIB) $(LDSCRIPT)
+	$(LD) $(LDFLAGS) -T $(LDSCRIPT) -o $@ --start-group $(PHASE1_OBJ) $(EMBED_OBJ) $(RUST_LIB) $(RUST_HD_LIB) $(RUST_PR_LIB) $(OPENSSL_LDLIBS) --end-group
 	@echo "Built: $@"
 
 # Flat binary for QEMU -kernel (multiboot2-compatible)
@@ -489,8 +502,17 @@ $(FLAT_BIN): $(TARGET)
 	$(OBJCOPY) -O binary $< $@
 	@echo "Flat binary: $@"
 
-kernel/initramfs_files.c: $(USER_ELF) $(wildcard $(ZROOT)/build/zircon_init $(ZROOT)/build/zircond)
-	python3 scripts/gen_initramfs.py $^ > $@
+# Zircon's own init/compositor and the bas programs live one level up in
+# ../build (this Makefile is in Zircon/kernel).  The CodeOS copy of this rule
+# says ../Zircon/build because there the kernel sits beside the submodule; the
+# path was not adjusted when the kernel was vendored, so zircon_init/zircond
+# were silently not embedded.
+#
+# The bas wildcard is expanded when the recipe runs, after `kernel: bas_progs`
+# in the top-level Makefile has produced them, so a clean build embeds them
+# rather than only a second run doing so.
+kernel/initramfs_files.c: $(USER_ELF) $(wildcard ../build/zircon_init ../build/zircond)
+	python3 scripts/gen_initramfs.py $^ $(wildcard ../build/bin/bas-*) > $@
 
 # ─── ISO creation ───
 # Override these if your grub-mkrescue and grub directory are elsewhere
@@ -518,13 +540,13 @@ $(LIVE_DISK_IMG): $(USER_ELF) $(wildcard userspace/ld-codeos) $(wildcard disk/sc
 	@echo "Creating pre-baked disk image ($(LIVE_DISK_SIZE_M) MB)..."
 	rm -f $(LIVE_DISK_IMG) fs.img
 	FS_TREE=$$(mktemp -d); \
-	mkdir -p $$FS_TREE/bin $$FS_TREE/lib $$FS_TREE/etc $$FS_TREE/home $$FS_TREE/scripts $$FS_TREE/usr/share/applications; \
+	mkdir -p $$FS_TREE/bin $$FS_TREE/lib $$FS_TREE/etc $$FS_TREE/root/root/home $$FS_TREE/scripts $$FS_TREE/usr/share/applications; \
 	$(foreach prog,$(USER_PROGS),cp userspace/$(prog) $$FS_TREE/bin/$(prog) 2>/dev/null; ) \
 	cp userspace/ld-codeos $$FS_TREE/lib/ld-codeos.so 2>/dev/null || true; \
 	cp disk/scripts/*.script $$FS_TREE/scripts/ 2>/dev/null || true; \
 	cp disk/etc/* $$FS_TREE/etc/ 2>/dev/null || true; \
 	cp -r disk/usr/. $$FS_TREE/usr/ 2>/dev/null || true; \
-	chmod -R 755 $$FS_TREE/bin $$FS_TREE/lib $$FS_TREE/scripts $$FS_TREE/etc $$FS_TREE/home; \
+	chmod -R 755 $$FS_TREE/bin $$FS_TREE/lib $$FS_TREE/scripts $$FS_TREE/etc $$FS_TREE/root; \
 	mke2fs -d $$FS_TREE -F -q fs.img $(LIVE_DISK_SIZE_M)M; \
 	dd if=/dev/zero of=$(LIVE_DISK_IMG) bs=1M count=$(LIVE_DISK_SIZE_M) 2>/dev/null; \
 	parted -s $(LIVE_DISK_IMG) mklabel msdos 2>/dev/null; \
@@ -600,7 +622,7 @@ run-iso: codeos-1.0.iso $(LIVE_DISK_IMG)
 
 run-vbox: codeos-1.0.iso
 	@echo "Running CodeOS in VirtualBox (provisions the 'CodeOS' VM, NAT net, IDE rootfs)..."
-	@$(CODEOS_ROOT)/vbox.sh --headless
+	@$(CURDIR)/../vbox.sh --headless
 
 run-iso-grub: codeos-1-kernel-grub.iso $(LIVE_DISK_IMG)
 	$(QEMU) $(QEMU_BASE) -cdrom $< $(QEMU_NET) $(QEMU_USB) -drive file=$(LIVE_DISK_IMG),format=raw,if=ide $(KVM)
@@ -677,15 +699,15 @@ disk-img-populate: disk.img-legacy
 disk-img-all: disk.img-legacy disk-img-format disk-img-populate
 
 # ─── Installer: persistent disk install (not live-ISO). See scripts/install-codesos.sh ───
-INSTALL_IMG ?= $(CODEOS_ROOT)/codeos-installed.img
+INSTALL_IMG ?= $(CURDIR)/../codeos-installed.img
 
 # Build a bootable, installed HDD image you can boot directly (no -kernel/-cdrom).
 install-image: $(TARGET)
-	@bash $(CODEOS_ROOT)/scripts/install-codesos.sh make-image 128 $(INSTALL_IMG)
+	@bash $(CURDIR)/../scripts/install-codesos.sh make-image 128 $(INSTALL_IMG)
 
 # Install onto a real block device.  Set INSTALL_DEV=/dev/sdX and run.
 install: $(TARGET)
-	@bash $(CODEOS_ROOT)/scripts/install-codesos.sh install $(INSTALL_DEV)
+	@bash $(CURDIR)/../scripts/install-codesos.sh install $(INSTALL_DEV)
 
 # Boot the installed image directly in QEMU (proves the install is bootable).
 run-installed: install-image

@@ -6,15 +6,19 @@
 /* The color palette (C_BASE, C_MAUVE, ...) lives in the canonical panel
  * header; kernel/kernel/windows.h only defines a window_t for Zircon and
  * would shadow the unqualified "windows.h" include (same include guard). */
-#include "panels.h"
+
 #include "kprintf.h"
+
+/* Stub for panels_menubar_h - Zircon doesn't use Qt desktop panel */
+int panels_menubar_h(void) { return 0; }
+
+#include "pixelman.h"
 #include "string.h"
 #include "zdm.h"
 #include "../drivers/audio.h"
 #include "../drivers/zircon_ipc.h"
 #include "../arch/x86_64/fb.h"
 #include "../drivers/timer.h"
-#include "pixelman.h"
 #include "process.h"
 #include "elf.h"
 #include "shell.h"

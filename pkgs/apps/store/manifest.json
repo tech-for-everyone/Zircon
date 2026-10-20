@@ -1,0 +1,14 @@
+{
+  "name": "store",
+  "version": "1.0.0",
+  "description": "Zircon Store app - the app catalogue and the installed set",
+  "license": "MIT",
+  "type": "source",
+  "category": "Apps",
+  "dependencies": [
+    "gui",
+    "zircapp"
+  ],
+  "install_path": "/apps/store",
+  "source": "src/"
+}

@@ -1,10 +1,11 @@
-#ifndef _BOOTSPLASH_H
-#define _BOOTSPLASH_H
+/* Minimal bootsplash stubs for Zircon */
+#ifndef BOOTSPLASH_H
+#define BOOTSPLASH_H
 
-void bootsplash_init(void);
-void bootsplash_tick(void);
-void bootsplash_set_progress(int percent, const char *msg);
-void bootsplash_set_message(const char *msg);
-void bootsplash_finish(void);
+#include <stdint.h>
+
+static inline void bootsplash_init(void) { }
+static inline void bootsplash_finish(void) { }
+static inline void bootsplash_set_progress(int pct, const char *msg) { (void)pct; (void)msg; }
 
 #endif

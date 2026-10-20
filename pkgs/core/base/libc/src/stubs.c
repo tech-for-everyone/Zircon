@@ -197,7 +197,7 @@ sighandler_t signal(int sig, sighandler_t handler) {
 
 /* ─────────────────────────────────────────────────────────────
  * vsnprintf — real minimal formatter.
- * Supports: %s %c %d %i %u %x %X %p %% %ld %lu %lx %g/%f (double)
+ * Supports: %s %c %d %i %u %x %X %p %% %ld %lld %lu %llu %lx %g/%f (double)
  * plus '-' / '0' flags and width for left-padding.
  * ───────────────────────────────────────────────────────────── */
 
@@ -275,8 +275,23 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap) {
             p++;
         }
         while (*p >= '0' && *p <= '9') { width = width * 10 + (*p - '0'); p++; }
-        int is_long = 0;
-        if (*p == 'l') { is_long = 1; p++; }
+        /* Length modifier: 0 = int, 1 = long, 2 = long long.
+         *
+         * The old code knew only a single 'l', so "%lld" fell through to the
+         * default case and printed the format characters literally: a bas
+         * program on Zircon printed "vec len = lu" where it meant 514.  bas
+         * formats its 64-bit values with %lld/%llu (i64 is its widest
+         * integer), so this is not a corner case -- it is every i64 the
+         * program prints. */
+        int len = 0;
+        if (*p == 'l') {
+            p++;
+            if (*p == 'l') { len = 2; p++; }
+            else len = 1;
+        } else if (*p == 'z' || *p == 'j' || *p == 't') {
+            len = 2;
+            p++;
+        }
 
         char conv = *p;
         switch (conv) {
@@ -300,8 +315,9 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap) {
         }
         case 'd':
         case 'i': {
-            long long v = is_long ? (long long)va_arg(ap, long)
-                                  : (long long)va_arg(ap, int);
+            long long v = (len == 2) ? (long long)va_arg(ap, long long)
+                        : (len == 1) ? (long long)va_arg(ap, long)
+                                     : (long long)va_arg(ap, int);
             if (v < 0) {
                 zb_putc(buf, &pos, max, '-');
                 fmt_int(buf, &pos, max, (unsigned long long)(-v), 10, 0, zero, width > 1 ? width - 1 : 0, left);
@@ -312,20 +328,23 @@ int vsnprintf(char *buf, size_t size, const char *fmt, va_list ap) {
         }
         case 'u':
             fmt_int(buf, &pos, max,
-                    is_long ? (unsigned long long)va_arg(ap, unsigned long)
-                            : (unsigned long long)va_arg(ap, unsigned int),
+                    (len == 2) ? (unsigned long long)va_arg(ap, unsigned long long)
+                    : (len == 1) ? (unsigned long long)va_arg(ap, unsigned long)
+                                 : (unsigned long long)va_arg(ap, unsigned int),
                     10, 0, zero, width, left);
             break;
         case 'x':
             fmt_int(buf, &pos, max,
-                    is_long ? (unsigned long long)va_arg(ap, unsigned long)
-                            : (unsigned long long)va_arg(ap, unsigned int),
+                    (len == 2) ? (unsigned long long)va_arg(ap, unsigned long long)
+                    : (len == 1) ? (unsigned long long)va_arg(ap, unsigned long)
+                                 : (unsigned long long)va_arg(ap, unsigned int),
                     16, 0, zero, width, left);
             break;
         case 'X':
             fmt_int(buf, &pos, max,
-                    is_long ? (unsigned long long)va_arg(ap, unsigned long)
-                            : (unsigned long long)va_arg(ap, unsigned int),
+                    (len == 2) ? (unsigned long long)va_arg(ap, unsigned long long)
+                    : (len == 1) ? (unsigned long long)va_arg(ap, unsigned long)
+                                 : (unsigned long long)va_arg(ap, unsigned int),
                     16, 1, zero, width, left);
             break;
         case 'p': {
@@ -625,6 +644,27 @@ char *strchr(const char *s, int c) {
     while (*s) {
         if (*s == (char)c) return (char *)s;
         s++;
+    }
+    return (char *)0;
+}
+
+/* strstr was missing between the other string functions, so the bas runtime
+ * (which uses it for String::contains) failed to LINK against this libc while
+ * linking happily against CodeOS's, which has it.  Naive search rather than
+ * KMP: the needles here are short paths and substrings, and the simple form is
+ * what the rest of this file does.
+ *
+ * An empty needle matches at the start, per C.  Returning `haystack` rather
+ * than NULL is what distinguishes that case from "not found". */
+char *strstr(const char *haystack, const char *needle) {
+    if (!needle || !*needle) return (char *)haystack;
+    if (!haystack) return (char *)0;
+    size_t n = 0;
+    while (needle[n]) n++;
+    for (const char *h = haystack; *h; h++) {
+        size_t i = 0;
+        while (i < n && h[i] == needle[i]) i++;
+        if (i == n) return (char *)h;
     }
     return (char *)0;
 }

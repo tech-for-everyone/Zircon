@@ -4,3 +4,4 @@
 zircond
 build/
 kernel/codeos-1-kernel.bin
+kernel/zircon-kernel-1.bin

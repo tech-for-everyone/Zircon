@@ -17,6 +17,7 @@
 #include <weather.h>
 #include <about.h>
 #include <notifications.h>
+#include <store.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -46,8 +47,12 @@ static void home_init(struct zircapp_app *app) {
     zircapp_register(&weather_app);
     zircapp_register(&about_app);
     zircapp_register(&notifications_app);
+    /* The Store is registered last: it is the app that owns the installed
+     * set, and the Home grid consults it (store_is_installed) for every app
+     * it draws. */
+    zircapp_register(&store_app);
     apps_registered = 1;
-    printf("home: all apps registered (%d apps)\n", 15);
+    printf("home: all apps registered (%d apps)\n", 16);
 }
 
 static void home_event(struct zircapp_app *app, const zircapp_event_t *ev) {

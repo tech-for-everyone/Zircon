@@ -290,3 +290,93 @@ ncvm: selftest [ok  ] the listing is packed NUL-separated names, not fixed-strid
 - **Flat shading is a unit test of the shading term, and the probe says so.** `lgame_3d_tri_shaded()` takes the normal as an argument, so probe D passes three different normals to three coplanar quads. What is under test is that facing alone picks the brightness; calling it a lit scene would be a claim the geometry does not support. Expected values are derived from the documented formula, not read off a working build: light +Z, ambient 1/4, base `0xFFFF8000` gives `255/128/0` (lam 1.0), `198/99/0` (lam 46341/65536) and `63/32/0` (lam clamps to 0). The channels are deliberately asymmetric so a channel-order slip cannot hide behind three equal numbers. Control 5 forces `lam = 1.0`, and only `shade_mid`/`shade_dark` fail — `shade_lit` still passes, because the lit face's expected value *is* the base colour. A control that turns up nothing is not a control; this one was expected to leave one probe green.
 - **Probe D cost two builds on a units bug that read as a shading bug.** The table stored screen offsets (+-108 px) and the geometry used them as world coordinates, so all three quads collapsed onto x=0 and the depth test rejected the second and third as exactly as near as the first. The symptom was "shading does nothing" — the lit colour everywhere — which points at the shading term rather than at the geometry. Scaling that constant a second time, instead of fixing the table, kept two probes failing. When several expected values come out as one value, suspect the geometry before the arithmetic.
 - **The 3D viewport is 320x480 with a 16-bit depth buffer — about 300 KB.** It is deliberately smaller than the 1280x800 surface because a software rasteriser pays per pixel, and `selftest_3d()` calls `lgame_3d_end()` as soon as the probe is drawn rather than holding the buffer for the life of the frame. If `lgame_3d_begin()` fails to allocate, the selftest **returns a distinct negative rc** (`-31`), so "the probe could not run" can never be mistaken for "the probe passed".
+
+## Zircon's kernel (the vendored tree under `Zircon/kernel`)
+This tree is a *vendored copy* of the CodeOS kernel, and it has its own
+Makefile, its own entry point (`kernel/kernel/main.c`) and its own stubs.
+The differences are not cosmetic: everything below was a boot failure, and
+every one of them presented as "the ISO boots and does nothing".
+
+- **The Zircon entry point is a different `main.c`, and it had to be taught
+  the CodeOS boot order.** The CodeOS kernel does, in this order:
+  `phys_to_virt_base = limine_hhdm_offset()` → `pmm_init()` → `vmm_init()` →
+  `idt_init()` → `gdt_tss_init()`.  Zircon's had `gdt_tss_init()` *first* and
+  never set `phys_to_virt_base` at all, so `gdt_tss_init()` computed a NULL
+  TSS pointer and the kernel **triple-faulted on its very first
+  instruction** — silently, because `serial_init()` had not run yet and there
+  was no IDT to report the page fault.  QEMU showed it as a *reset*
+  (`qemu ... -no-reboot` exiting **0**, not 124), with the serial log ending
+  at limine's own ACPI lines.  `qemu -d int,cpu_reset` is what named it:
+  `#PF` at the `gdt_tss_init` frame.
+- **`pmm_init()`'s first argument is the machine's memory size, not the
+  kernel's.** Zircon passed the kernel image size, so the PMM believed the
+  whole machine was 72 MB — smaller than the image — and reserved **zero**
+  pages of it (`PMM: ... kernel=242980-18492 (0 pages)`): every page of the
+  running kernel was allocatable.  `limine_setup_mm(&mem_size)` is where the
+  real size comes from.
+- **`kprintf_set_serial(serial_putchar)` is not optional.** `kprintf()` writes
+  to the serial port *only* through that hook; without it every kernel
+  message goes to the framebuffer and nowhere else, so the serial log stays
+  empty for the whole boot and a hang looks like a silent machine.  The
+  Zircon kernel had never called it, which is why it printed nothing at all.
+- **`syscall_init()` installs the `int $0x80` handler, and `syscall_msr_init()`
+  the `syscall` one.** Both were missing, and each had its own signature:
+  - without `syscall_init()`, the IDT entry for vector 0x80 points at nothing,
+    so every syscall from user mode raised **#GP**.  The Zircon libc and
+    every program built for the Zircon target (bas included) enter the kernel
+    with `int $0x80`, so *nothing* could run.  The symptom was a tight
+    `#GP` loop at the program's `int $0x80` — 50 000 exceptions in a boot.
+  - without `syscall_msr_init()`, the `syscall` instruction itself raises
+    #GP.
+  Turning the dispatcher on also made it *live* for the first time, and
+  `--gc-sections` stopped hiding the subsystems it drags in: the socket layer
+  wants `tcp_*`/`ip_send`/`net_get_ip` (there is no network stack here) and
+  the X server wants `pixelman_image_*` (there is no PixelMan here).
+  `kernel/net_stubs.c` and `kernel/pixelman_stubs.c` answer them.  **A
+  reference that only a dead-code path makes is invisible until the path
+  becomes live** — that is the whole lesson of this list.
+- **The userland must be `-mno-sse`.** The kernel runs user programs without
+  an FXSAVE area, so an SSE instruction in user mode raises **#UD**, not a
+  page fault: `zircon_init` died at its first memset with
+  `!!! UD (vec 6) at RIP=0x401363` — an `xorpd %xmm0,%xmm0` inside the libc.
+  `pkgs/pkgs.mk`'s `PKG_CFLAGS` now carries `-mno-sse -mno-sse2`, like the
+  CodeOS kernel and its userspace already did.  One file keeps SSE:
+  `pkgs/extra/browser/src/net_shim.c`, because it defines `fma()`, and a
+  double-*returning* function cannot be compiled with SSE disabled at all.
+- **`fs_init()` before `initramfs_populate()`, or the image has no programs
+  in it.** Without `fs_init()` the node table is never set up and every
+  `fs_mkdir()` fails: the population stops at its first directory with
+  `initramfs: cannot create /lib`, and the image ships without
+  `/sbin/zircon_init` or `/bin/bas-selftest`.  The one line is the only
+  symptom — the rest of the boot carries on and simply has nothing to run.
+- **The initramfs rule's paths are relative to this directory.** The CodeOS
+  copy says `../Zircon/build/...`, which is right there (the kernel sits
+  beside the submodule) and wrong here: this tree *is* `Zircon/kernel`, so
+  it is `../build/...`.  The wrong path matched nothing, so `zircon_init` and
+  `zircond` were silently left out of the image.
+- **`SRC_CXX` is a fresh assignment, so the `find` exclusions do not apply
+  to it.** The list named `arch/fb.cpp` and `kernel/qt_desktop.cpp`, both of
+  which the `find` had dropped, and both of which collided with the Zircon
+  substitutes: `fb_drawstr_px` (also in `pixelman_stubs.c`) and
+  `panels_menubar_h` (also in `zircon.c`).  The link failed with "multiple
+  definition of ..." for both.  `arch/fb.cpp` has to stay — it is the
+  framebuffer implementation — so the *stub* gave way instead; `qt_desktop`
+  is the CodeOS Qt desktop and is simply not linked here.
+- **There is no Qt in Zircon, so the kernel must not depend on it.**
+  `$(TARGET)` inherited `$(QT6_OBJS) $(QT6_PANELS_STAMP)`, and the stamp
+  rule ran `make -C ../qt6/panels` — a directory that does not exist in this
+  tree.  The build failed before the link was even attempted.
+- **The linker script's catch-alls miss clang's `l`-prefixed sections.** With
+  the kernel's flags (`-mcmodel=large -ffunction-sections -fdata-sections`)
+  clang emits `.ltext.*` / `.lrodata.*` / `.ldata.*`, marked
+  `SHF_LINK_ORDER`, and `*(.text*)` / `*(.data*)` do not match them.  They
+  became orphans, ld gave them their own segment, and the resulting image
+  had two overlapping `PT_LOAD`s — which limine rejects outright:
+  `PANIC: elf: Attempted to load ELF file with overlapping PHDRs (0 and 1
+  overlap)`.  `kernel/linker.ld` (shared with CodeOS) now catches the three
+  families.
+- **The compositor's screen is drawn by the compositor, not by the app.**
+  Every ZircApp screen is painted in `pkgs/core/base/compositor/src/main.c`
+  from the app *name*, so a new app needs a case there as well as a registry
+  entry.  The app store is the example: `pkgs/apps/store` owns the catalogue
+  and the installed set, and the compositor asks it which apps to show.

@@ -13,6 +13,7 @@
 #include <zircapp.h>
 #include <zircon_abi.h>
 #include <wm_protocol.h>
+#include <store.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -32,16 +33,66 @@ static inline int sys_get_info(int cmd, char *buf, int max_len) {
     int ret; __asm__ volatile("int $0x80" : "=a"(ret) : "a"(54), "D"(cmd), "S"(buf), "d"(max_len) : "memory"); return ret;
 }
 
+/* Settings syscalls */
+#define SYSCALL_WIFI_CONTROL  81
+#define SYSCALL_BT_CONTROL    82
+#define SYSCALL_DND_SET       83
+#define SYSCALL_DND_GET       84
+#define SYSCALL_AIRPLANE_SET  85
+#define SYSCALL_AIRPLANE_GET  86
+
+#define WIFI_CMD_ENABLE     0
+#define WIFI_CMD_DISABLE    1
+#define WIFI_CMD_SCAN       2
+#define WIFI_CMD_CONNECT    3
+
+static inline int sys_wifi_enable(void) {
+    int ret; __asm__ volatile("int $0x80" : "=a"(ret) : "a"(SYSCALL_WIFI_CONTROL), "D"(WIFI_CMD_ENABLE) : "memory"); return ret;
+}
+static inline int sys_wifi_disable(void) {
+    int ret; __asm__ volatile("int $0x80" : "=a"(ret) : "a"(SYSCALL_WIFI_CONTROL), "D"(WIFI_CMD_DISABLE) : "memory"); return ret;
+}
+static inline int sys_wifi_scan(void *out) {
+    int ret; __asm__ volatile("int $0x80" : "=a"(ret) : "a"(SYSCALL_WIFI_CONTROL), "D"(WIFI_CMD_SCAN), "S"(out) : "memory"); return ret;
+}
+static inline int sys_wifi_connect(const char *ssid, const char *password) {
+    int ret; __asm__ volatile("int $0x80" : "=a"(ret) : "a"(SYSCALL_WIFI_CONTROL), "D"(WIFI_CMD_CONNECT), "S"(ssid), "d"(password) : "memory"); return ret;
+}
+
+#define BT_CMD_ENABLE   0
+#define BT_CMD_DISABLE  1
+
+static inline int sys_bt_enable(void) {
+    int ret; __asm__ volatile("int $0x80" : "=a"(ret) : "a"(SYSCALL_BT_CONTROL), "D"(BT_CMD_ENABLE) : "memory"); return ret;
+}
+static inline int sys_bt_disable(void) {
+    int ret; __asm__ volatile("int $0x80" : "=a"(ret) : "a"(SYSCALL_BT_CONTROL), "D"(BT_CMD_DISABLE) : "memory"); return ret;
+}
+
+static inline int sys_dnd_set(int enabled) {
+    int ret; __asm__ volatile("int $0x80" : "=a"(ret) : "a"(SYSCALL_DND_SET), "D"(enabled) : "memory"); return ret;
+}
+static inline int sys_dnd_get(void) {
+    int ret; __asm__ volatile("int $0x80" : "=a"(ret) : "a"(SYSCALL_DND_GET) : "memory"); return ret;
+}
+
+static inline int sys_airplane_set(int enabled) {
+    int ret; __asm__ volatile("int $0x80" : "=a"(ret) : "a"(SYSCALL_AIRPLANE_SET), "D"(enabled) : "memory"); return ret;
+}
+static inline int sys_airplane_get(void) {
+    int ret; __asm__ volatile("int $0x80" : "=a"(ret) : "a"(SYSCALL_AIRPLANE_GET) : "memory"); return ret;
+}
+
 /* freestanding unistd.h has no usleep; provided by zircapp_platform.c */
 extern int usleep(unsigned int usec);
 
 /* ── Built-in app: Home Screen ── */
 extern zircapp_app_t home_app;
 
-/* ── Logical screen (the ZircApp window).  Must stay under the kernel
- * bridge's 1 MiB software-canvas cap: W*H*4 <= 0x100000. ── */
-#define SCREEN_W 400
-#define SCREEN_H 600
+/* Screen dimensions — set at runtime from framebuffer.
+ * Must stay under the kernel bridge's 1 MiB software-canvas cap: W*H*4 <= 0x100000. */
+static int SCREEN_W;
+static int SCREEN_H;
 
 #define HEADER_H  44
 #define FOOTER_H  28
@@ -112,6 +163,7 @@ static void app_state_reset(void) { memset(&ast, 0, sizeof(ast)); ast.settings =
 /* Forward declarations for functions used before definition */
 static int hit_cell(int px, int py);
 static void app_key(int key);
+static void do_launch(int idx);
 static int sys_read(int fd, void *buf, int count);
 static int sys_wm_attach(void);
 
@@ -378,10 +430,24 @@ static void draw_music(void) {
 static const char *kSetNames[5] = { "Wi-Fi", "Bluetooth", "Dark Mode", "Do Not Disturb", "Airplane Mode" };
 static const unsigned kSetBits[5] = { SET_WIFI, SET_BT, SET_DARK, SET_DND, SET_AIR };
 static int settings_row_at(int y) { int ry = HEADER_H + 14; for (int i = 0; i < 5; i++) { if (y >= ry && y < ry + 52) return i; ry += 60; } return -1; }
-static void settings_toggle(int row) { ast.settings ^= kSetBits[row]; }
+static void settings_toggle(int row) {
+    ast.settings ^= kSetBits[row];
+    int on = (ast.settings & kSetBits[row]) != 0;
+    switch (row) {
+    case 0: on ? sys_wifi_enable() : sys_wifi_disable(); break;
+    case 1: on ? sys_bt_enable() : sys_bt_disable(); break;
+    case 2: /* Dark mode is visual only */ break;
+    case 3: sys_dnd_set(on); break;
+    case 4: sys_airplane_set(on); if (on) { sys_wifi_disable(); sys_bt_disable(); } break;
+    }
+}
 static void draw_settings(void) {
     int ry = HEADER_H + 14; for (int i = 0; i < 5; i++) {
         int on = (ast.settings & kSetBits[i]) != 0;
+        /* Sync with kernel state for DND and Airplane */
+        if (i == 3) on = sys_dnd_get();
+        else if (i == 4) on = sys_airplane_get();
+        /* WiFi and BT use local state (toggled by user) */
         wm_fill(12, ry, SCREEN_W - 24, 52, COL_CELL); wm_text(28, ry + 18, COL_TEXT, kSetNames[i]);
         int px = SCREEN_W - 12 - 28 - 44; wm_fill(px, ry + 14, 44, 24, on ? COL_ACCENT : COL_PANEL);
         wm_fill(on ? px + 22 : px + 2, ry + 16, 20, 20, 0xFF11111B); ry += 60;
@@ -404,11 +470,11 @@ static void draw_gallery(void) {
 }
 
 /* ── SMS: thread list, click selects ── */
-static const char *kSmsFrom[4] = { "Mom", "ZircApp", "Ada", "Network" };
-static const char *kSmsText[4] = { "call me back when you can", "welcome to Zircon!", "the kernel build is green", "your data is safe" };
-static int sms_row_at(int y) { int ry = HEADER_H + 14; for (int i = 0; i < 4; i++) { if (y >= ry && y < ry + 56) return i; ry += 64; } return -1; }
+static const char *kSmsFrom[3] = {"ZircApp", "Network" };
+static const char *kSmsText[3] = {"welcome to Zircon!", "your data is safe" };
+static int sms_row_at(int y) { int ry = HEADER_H + 14; for (int i = 0; i < 3; i++) { if (y >= ry && y < ry + 56) return i; ry += 64; } return -1; }
 static void draw_sms(void) {
-    int ry = HEADER_H + 14; for (int i = 0; i < 4; i++) {
+    int ry = HEADER_H + 14; for (int i = 0; i < 3; i++) {
         int sel = (i == ast.sms_sel);
         wm_fill(12, ry, SCREEN_W - 24, 56, sel ? COL_CELL_HI : COL_CELL);
         wm_fill(12, ry, 4, 56, sel ? COL_ACCENT : COL_PANEL);
@@ -465,6 +531,119 @@ static void draw_about(void) {
     text_c(HEADER_H + 286, COL_FAINT, "v1.0.0");
 }
 
+/* ── Zircon Store: the app catalogue ── */
+#define STORE_ROW_H   44
+#define STORE_X       16
+#define STORE_TOP     (HEADER_H + 46)
+#define STORE_BADGE_W 108
+
+static int store_scroll;   /* first catalogue row on screen */
+
+static int store_rows_visible(void) {
+    int space = SCREEN_H - FOOTER_H - STORE_TOP - 34;
+    if (space < STORE_ROW_H) return 1;
+    return space / STORE_ROW_H;
+}
+
+/* Text is 8 px per cell in the WM font, so a description is clipped by
+ * counting cells rather than by measuring: wm_text has no clipping and a
+ * long string would run into the badge. */
+static void store_text_clipped(int x, int y, uint32_t col, const char *s, int max_cells) {
+    char buf[128];
+    int n = 0;
+    if (!s) return;
+    while (s[n] && n < max_cells && n < (int)sizeof(buf) - 1) { buf[n] = s[n]; n++; }
+    buf[n] = 0;
+    wm_text(x, y, col, buf);
+}
+
+static void draw_store(void) {
+    int total = store_count();
+    int vis = store_rows_visible();
+    if (store_scroll > total - vis) store_scroll = total - vis;
+    if (store_scroll < 0) store_scroll = 0;
+
+    char buf[96];
+    snprintf(buf, sizeof(buf), "%d apps in the catalogue", total);
+    wm_text(STORE_X, HEADER_H + 14, COL_DIM, buf);
+    wm_text(STORE_X, HEADER_H + 30, COL_FAINT, "tap a row to open it, tap the badge to remove or install");
+
+    for (int r = 0; r < vis; r++) {
+        int idx = store_scroll + r;
+        const store_item_t *it = store_item(idx);
+        if (!it) break;
+        int y = STORE_TOP + r * STORE_ROW_H;
+        int installed = store_is_installed(it->name);
+        wm_fill(STORE_X, y, SCREEN_W - STORE_X * 2, STORE_ROW_H - 6, COL_CELL);
+        wm_fill(STORE_X, y, 3, STORE_ROW_H - 6, installed ? COL_OK : COL_ACCENT);
+        wm_text(STORE_X + 12, y + 5, COL_TEXT, it->name);
+        snprintf(buf, sizeof(buf), "v%s  %s  %u KB", it->version, it->category, it->size_kb);
+        wm_text(STORE_X + 12, y + 24, COL_FAINT, buf);
+        store_text_clipped(STORE_X + 190, y + 24, COL_DIM, it->desc,
+                           (SCREEN_W - STORE_X * 2 - STORE_BADGE_W - 210) / 8);
+        /* The badge is the install control: the row itself opens the app. */
+        const char *badge = installed ? "INSTALLED" : "AVAILABLE";
+        uint32_t badge_col = installed ? COL_OK : COL_ACCENT;
+        int badge_x = SCREEN_W - STORE_X - STORE_BADGE_W;
+        wm_fill(badge_x, y, STORE_BADGE_W - 8, STORE_ROW_H - 6, COL_PANEL);
+        wm_text(badge_x + 12, y + 14, badge_col, badge);
+    }
+
+    if (total > vis) {
+        snprintf(buf, sizeof(buf), "%d of %d - tap below to scroll", store_scroll + vis, total);
+        wm_text(STORE_X, SCREEN_H - FOOTER_H - 22, COL_FAINT, buf);
+    }
+}
+
+/* Which catalogue row is at this y?  -1 when the tap is past the list. */
+static int store_row_at(int y) {
+    if (y < STORE_TOP) return -1;
+    int r = (y - STORE_TOP) / STORE_ROW_H;
+    int vis = store_rows_visible();
+    if (r >= vis) return -1;
+    int idx = store_scroll + r;
+    return idx < store_count() ? idx : -1;
+}
+
+/* The badge is the right-hand strip of the row. */
+static int store_badge_hit(int x, int y) {
+    int idx = store_row_at(y);
+    if (idx < 0) return 0;
+    (void)idx;
+    return x >= SCREEN_W - STORE_X - STORE_BADGE_W;
+}
+
+static void store_tap(int x, int y) {
+    int idx = store_row_at(y);
+    if (idx < 0) {
+        /* A tap past the last row scrolls the list, if there is more. */
+        int vis = store_rows_visible();
+        if (store_scroll + vis < store_count()) { store_scroll += vis; printf("store: scrolled to %d\n", store_scroll); }
+        return;
+    }
+    const store_item_t *it = store_item(idx);
+    if (!it) return;
+    if (store_badge_hit(x, y)) {
+        int want = store_is_installed(it->name) ? 0 : 1;
+        store_set_installed(it->name, want);
+        printf("store: '%s' %s\n", it->name, want ? "installed" : "removed");
+        return;
+    }
+    if (!store_is_installed(it->name)) {
+        store_set_installed(it->name, 1);
+        printf("store: '%s' installed\n", it->name);
+        return;
+    }
+    /* Installed: open it, the same way the Home grid does. */
+    int ridx = -1;
+    for (int i = 0; i < zircapp_count(); i++) {
+        zircapp_app_t *a = zircapp_get(i);
+        if (a && !strcmp(a->name, it->name)) { ridx = i; break; }
+    }
+    if (ridx >= 0) do_launch(ridx);
+    else printf("store: '%s' is not in the app registry\n", it->name);
+}
+
 /* ── Layout + painting ── */
 static void cell_rect(int idx, int *x, int *y, int *w, int *h) {
     int cw = (SCREEN_W - GRID_MRG * (COLS + 1)) / COLS;
@@ -472,6 +651,22 @@ static void cell_rect(int idx, int *x, int *y, int *w, int *h) {
     *y = HEADER_H + GRID_MRG + (idx / COLS) * (CELL_H + CELL_GAP);
     *w = cw; *h = CELL_H;
 }
+
+/* The Home grid shows the INSTALLED apps only -- the Zircon Store owns that
+ * set (pkgs/apps/store).  Drawing and hit-testing therefore have to walk the
+ * same list, or a tap lands on a different app than the one that was drawn.
+ * home_registry_at() is the single mapping both use. */
+static int home_registry_at(int disp) {
+    int seen = 0;
+    for (int i = 0; i < zircapp_count(); i++) {
+        zircapp_app_t *a = zircapp_get(i);
+        if (!a || !store_is_installed(a->name)) continue;
+        if (seen == disp) return i;
+        seen++;
+    }
+    return -1;
+}
+
 static void draw_status(void) {
     zircapp_battery_t b = zircapp_battery_get(); zircapp_network_t n = zircapp_network_get();
     char buf[80]; snprintf(buf, sizeof(buf), "battery %d%%  net %d  wifi %d", b.level, n.network_type, n.wifi_connected);
@@ -479,15 +674,22 @@ static void draw_status(void) {
     wm_text(8, SCREEN_H - FOOTER_H + (FOOTER_H - 16) / 2, COL_DIM, buf);
 }
 static void draw_home(void) {
-    char buf[48]; int n = zircapp_count();
+    char buf[48];
+    int shown = 0;
+    for (int i = 0; i < zircapp_count(); i++) {
+        zircapp_app_t *a = zircapp_get(i);
+        if (a && store_is_installed(a->name)) shown++;
+    }
     wm_fill(0, 0, SCREEN_W, HEADER_H, COL_BAR);
     wm_text(12, (HEADER_H - 16) / 2, COL_TEXT, "ZircApp");
-    snprintf(buf, sizeof(buf), "%d apps", n);
+    snprintf(buf, sizeof(buf), "%d apps", shown);
     wm_text(SCREEN_W - 12 - (int)strlen(buf) * 8, (HEADER_H - 16) / 2, COL_ACCENT, buf);
     wm_fill(0, HEADER_H, SCREEN_W, SCREEN_H - HEADER_H - FOOTER_H, COL_BG);
+    int disp = 0;
     for (int i = 0; i < zircapp_count(); i++) {
         zircapp_app_t *a = zircapp_get(i); int x, y, w, h; if (!a) continue;
-        cell_rect(i, &x, &y, &w, &h);
+        if (!store_is_installed(a->name)) continue;
+        cell_rect(disp++, &x, &y, &w, &h);
         wm_fill(x, y, w, h, (i == active_app_idx) ? COL_CELL_HI : COL_CELL);
         wm_fill(x, y, w, 2, COL_ACCENT);
         wm_text(x + 10, y + (CELL_H - 16) / 2, COL_TEXT, a->name);
@@ -515,6 +717,7 @@ static void draw_app_screen(void) {
     else if (!strcmp(n, "Browser"))     draw_browser_app();
     else if (!strcmp(n, "Camera"))      draw_camera();
     else if (!strcmp(n, "About"))       draw_about();
+    else if (!strcmp(n, "Store"))       draw_store();
     else {
         wm_text(16, HEADER_H + 22, COL_TEXT, "ZircApp app running under Zircon");
         wm_text(16, HEADER_H + 46, COL_DIM, "touch events broadcast to all apps");
@@ -534,6 +737,7 @@ static void app_click(int x, int y) {
     else if (!strcmp(n, "Camera")) { ast.shots++; draw_app_screen(); }
     else if (!strcmp(n, "Gallery")) { int t = gallery_tile_at(x, y); if (t >= 0) { ast.tile_sel = t; draw_app_screen(); } }
     else if (!strcmp(n, "SMS")) { int t = sms_row_at(y); if (t >= 0) { ast.sms_sel = t; draw_app_screen(); } }
+    else if (!strcmp(n, "Store")) { store_tap(x, y); draw_app_screen(); }
 }
 
 static void goto_home(void) { mode = MODE_HOME; active_app_idx = -1; draw_home(); }
@@ -566,7 +770,12 @@ static void on_key(int key) {
 }
 
 static int hit_cell(int px, int py) {
-    int n = zircapp_count(); for (int i = 0; i < n; i++) { int x, y, w, h; cell_rect(i, &x, &y, &w, &h); if (px >= x && px < x + w && py >= y && py < y + h) return i; } return -1;
+    int n = zircapp_count();
+    for (int d = 0; d < n; d++) {
+        int x, y, w, h; cell_rect(d, &x, &y, &w, &h);
+        if (px >= x && px < x + w && py >= y && py < y + h) return home_registry_at(d);
+    }
+    return -1;
 }
 static void app_key(int key) {
     const char *n = active_name();
@@ -622,7 +831,21 @@ static int run_console(int selftest) {
     printf("zircapp: selftest apps=%d launched=%d\n", zircapp_count(), launched);
     int reg_before = zircapp_count(); zircapp_launch("Home"); zircapp_launch("Home");
     int reg_after = zircapp_count(); printf("zircapp: relaunch Home registry %d -> %d\n", reg_before, reg_after);
-    return launched == (int)(sizeof(kSubApps) / sizeof(kSubApps[0])) && reg_after == reg_before;
+
+    /* The app store: the catalogue and the installed set are the store
+     * package's own state, and the Home grid reads them, so the selftest
+     * drives them here.  This is the headless half of the store check -- the
+     * screen itself needs a framebuffer, but the logic does not. */
+    int catalogue = store_count();
+    int removed = store_set_installed("Clock", 0);
+    int hidden = store_is_installed("Clock");
+    int installed = store_set_installed("Clock", 1);
+    int shown = store_is_installed("Clock");
+    printf("zircapp: selftest store catalogue=%d remove=%d hidden=%d install=%d shown=%d\n",
+           catalogue, removed, hidden, installed, shown);
+    int store_ok = catalogue > 0 && removed == 1 && hidden == 0 && installed == 1 && shown == 1;
+
+    return launched == (int)(sizeof(kSubApps) / sizeof(kSubApps[0])) && reg_after == reg_before && store_ok;
 }
 
 /* ── Main ── */
@@ -635,16 +858,23 @@ int main(int argc, char **argv) {
     printf("╚══════════════════════════════════════════╝\n");
 
     zircon_fb_info_t fb;
-    if (zs_fb_info(&fb) == 0 && fb.width > 0 && fb.height > 0) zircapp_phone_set_screen((int)fb.width, (int)fb.height);
-    else zircapp_phone_set_screen(360, 640);
+    if (zs_fb_info(&fb) == 0 && fb.width > 0 && fb.height > 0) {
+        zircapp_phone_set_screen((int)fb.width, (int)fb.height);
+    } else {
+        zircapp_phone_set_screen(360, 640);
+    }
 
-    gui_desktop_init(zircapp_phone_get_width(), zircapp_phone_get_height());
+    /* Initialize dynamic screen dimensions */
+    SCREEN_W = zircapp_phone_get_width();
+    SCREEN_H = zircapp_phone_get_height();
+
+    gui_desktop_init(SCREEN_W, SCREEN_H);
     gui_window_init(); zircapp_init();
 
     zircapp_phone_init(); zircapp_register(&home_app);
 
     printf("Zircon ready — %d app(s) registered\n", zircapp_count());
-    printf("Zircon mobile mode: touch screen %dx%d\n", zircapp_phone_get_width(), zircapp_phone_get_height());
+    printf("Zircon mobile mode: touch screen %dx%d\n", SCREEN_W, SCREEN_H);
 
     zircapp_launch("Home");
 

@@ -97,6 +97,12 @@
 #define SYSCALL_SOCKET_LISTEN      78
 #define SYSCALL_SOCKET_ACCEPT      79
 #define SYSCALL_WM_ATTACH          80
+#define SYSCALL_WIFI_CONTROL       81
+#define SYSCALL_BT_CONTROL         82
+#define SYSCALL_DND_SET            83
+#define SYSCALL_DND_GET            84
+#define SYSCALL_AIRPLANE_SET       85
+#define SYSCALL_AIRPLANE_GET       86
 
 /* ── Zircon IPC (SYSCALL_ZIRCON_IPC) sub-commands ──
  * a1 = 0: return shared ring physical address (or -1 if absent)

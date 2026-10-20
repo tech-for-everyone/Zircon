@@ -7,12 +7,7 @@ void exit(int status) {
     while (1);
 }
 
-/* Weak on purpose: the vendored userspace zircapp links
- * pkgs/core/zircapp/src/zircapp_platform.c, which defines getpid/getppid
- * over the same syscalls.  Strong platform definitions then win for that
- * binary, and every other program here still resolves these normally. */
-__attribute__((weak)) int getpid(void) { return sys_getpid(); }
-__attribute__((weak)) int getppid(void) { return sys_getppid(); }
+/* getpid/getppid are now provided by unistd.h */
 
 int atoi(const char *s) {
     int val = 0, neg = 0;

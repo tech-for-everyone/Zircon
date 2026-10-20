@@ -141,7 +141,7 @@ ZC_OBJS = zircapp_host.o zircapp_platform.o zircapp_ow_stub.o \
           zc_home.o zc_kall.o zc_sms.o zc_settings.o zc_camera.o \
           zc_clock.o zc_calculator.o zc_music.o zc_gallery.o zc_browser.o \
           zc_notes.o zc_files.o zc_terminal.o zc_weather.o zc_about.o \
-          zc_notifications.o
+          zc_notifications.o zc_store.o
 
 zircapp: $(PKG_SRC)/zircapp/src/zircapp.c \
          $(PKG_SRC)/zircapp/src/zircapp_platform.c \
@@ -155,6 +155,7 @@ zircapp: $(PKG_SRC)/zircapp/src/zircapp.c \
          $(ZC_PKGS)/apps/notes/src/notes.c $(ZC_PKGS)/apps/files/src/files.c \
          $(ZC_PKGS)/apps/terminal/src/terminal.c $(ZC_PKGS)/apps/weather/src/weather.c \
          $(ZC_PKGS)/apps/about/src/about.c $(ZC_PKGS)/apps/notifications/src/notifications.c \
+         $(ZC_PKGS)/apps/store/src/store.c \
          $(wildcard $(ZC_PKGS)/core/base/zircapp/port/*.h) \
          crt0.o $(LIB_OBJ)
 	$(CC) $(ZC_CFLAGS) -c -o zircapp_host.o $(PKG_SRC)/zircapp/src/zircapp.c
@@ -178,6 +179,7 @@ zircapp: $(PKG_SRC)/zircapp/src/zircapp.c \
 	$(CC) $(ZC_CFLAGS) -c -o zc_weather.o $(ZC_PKGS)/apps/weather/src/weather.c
 	$(CC) $(ZC_CFLAGS) -c -o zc_about.o $(ZC_PKGS)/apps/about/src/about.c
 	$(CC) $(ZC_CFLAGS) -c -o zc_notifications.o $(ZC_PKGS)/apps/notifications/src/notifications.c
+	$(CC) $(ZC_CFLAGS) -c -o zc_store.o $(ZC_PKGS)/apps/store/src/store.c
 	$(LD) $(USER_LDFLAGS) -T link.ld -o $@ $(ZC_OBJS) crt0.o $(LIB_OBJ)
 
 define android-prog-rule

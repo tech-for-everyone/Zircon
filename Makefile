@@ -84,7 +84,12 @@ INIT_OBJS    = $(shell find $(BUILD)/pkgs/core/base/libc $(BUILD)/pkgs/core/base
 
 ifeq ($(ARCH),x86_64)
 
-all: pkgs $(ZIRCON_COMPOSITOR) $(ZIRCON_INIT) $(ZIRCON_ELF)
+# bas programs: .ba sources cross-compiled into Zircon userland ELFs by the
+# optional sibling bas checkout.  Included (not inlined) so Zircon/Makefile
+# stays the owner of the image link and pkgs/bas.mk owns the toolchain.
+include pkgs/bas.mk
+
+all: pkgs $(ZIRCON_COMPOSITOR) $(ZIRCON_INIT) $(ZIRCON_ELF) bas_progs
 
 debug: PKG_CFLAGS += -O0 -DDEBUG
 debug: all
@@ -120,8 +125,12 @@ $(ZIRCON_INIT): pkgs
 # kernel/.  `kernel` is phony so the sub-make always runs; it is incremental
 # after the first (cold) build.
 .PHONY: kernel
-kernel:
-	$(MAKE) -C $(KERNEL_DIR) codeos-1-kernel.bin
+# bas_progs first, not merely alongside: the kernel's initramfs rule embeds
+# ../build/bin/bas-* and its wildcard is expanded at sub-make time, so the
+# files must already exist.  A clean `make` would otherwise produce an image
+# without them and only a second run would include them.
+kernel: bas_progs
+	$(MAKE) -C $(KERNEL_DIR) all
 
 $(ZIRCON_KERNEL): kernel
 
@@ -162,11 +171,17 @@ endif # ARCH == arm64
 
 # ── Initramfs + ISO (x86_64) ──
 
-initramfs: $(ZIRCON_INIT) $(ZIRCON_COMPOSITOR) $(ZIRCON_KERNEL)
-	$(MKDIR) $(ISO_ROOT)/boot $(ISO_ROOT)/sbin
+initramfs: $(ZIRCON_INIT) $(ZIRCON_COMPOSITOR) $(ZIRCON_KERNEL) bas_progs
+	$(MKDIR) $(ISO_ROOT)/boot $(ISO_ROOT)/sbin $(ISO_ROOT)/bin
 	$(CP) $(ZIRCON_INIT) $(ISO_ROOT)/sbin/zircon_init
 	$(CP) $(ZIRCON_COMPOSITOR) $(ISO_ROOT)/sbin/zircond
 	$(CP) $(ZIRCON_KERNEL) $(ISO_ROOT)/boot/zircon-kernel.bin
+	# bas programs built from pkgs/core/bas/src/*.ba (see pkgs/bas.mk).  The
+	# loop tolerates an absent bas checkout by matching nothing, so this is a
+	# no-op rather than a failure when bas is not present.
+	for p in $(BAS_BINS); do \
+	    if [ -f "$$p" ]; then $(CP) "$$p" $(ISO_ROOT)/bin/; fi; \
+	done; chmod 755 $(ISO_ROOT)/bin 2>/dev/null || true
 	echo '#!/bin/sh' > $(ISO_ROOT)/init
 	echo 'echo "Zircon OS v1.0.0"' >> $(ISO_ROOT)/init
 	echo '/sbin/zircon_init' >> $(ISO_ROOT)/init
@@ -194,6 +209,15 @@ iso: initramfs
 	# "Booting from DVD/CD..." and then hangs forever with no diagnostic.
 	$(LIMINE_DEPLOY) bios-install $(ZIRCON_ISO)
 	@echo "Zircon ISO built: $(ZIRCON_ISO)"
+
+# ── Boot check ──
+#
+# Boots the ISO and asserts on the serial log: the kernel came up, the bas
+# probe ran /bin/bas-selftest to completion, and the compositor and the app
+# store are alive.  A green build proves none of that.
+.PHONY: boot-check
+boot-check: iso
+	@python3 scripts/zircon_boot_check.py --iso $(ZIRCON_ISO)
 
 # ── Run ──
 #

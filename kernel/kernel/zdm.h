@@ -1,47 +1,29 @@
+/* Minimal ZDM stubs for Zircon */
 #ifndef ZDM_H
 #define ZDM_H
 
-#include "types.h"
-
-/* Zircon Debug Mode — lightweight debug event logger for CodeOS→Zircon debugging */
-
-#define ZDM_EVENT_MAX  64
-#define ZDM_TEXT_LEN   80
+#include <stdint.h>
 
 typedef enum {
-    ZDM_NOTIFICATION,
-    ZDM_IPC_SEND,
-    ZDM_IPC_RECV,
-    ZDM_APP_LAUNCH,
-    ZDM_APP_CLOSE,
-    ZDM_KEY_EVENT,
-    ZDM_DRAWER_TOGGLE,
-    ZDM_SHADE_TOGGLE,
-    ZDM_QS_TOGGLE,
-    ZDM_INIT,
+    ZDM_INIT = 0,
+    ZDM_NOTIFICATION = 1,
+    ZDM_SHADE_TOGGLE = 2,
+    ZDM_DRAWER_TOGGLE = 3,
+    ZDM_QS_TOGGLE = 4,
 } zdm_event_type_t;
 
 typedef struct {
-    uint64_t         timestamp;
     zdm_event_type_t type;
-    char             text[ZDM_TEXT_LEN];
+    char text[128];
+    uint64_t timestamp;
 } zdm_event_t;
 
-/* Enable/disable debug logging */
-void zdm_set_enabled(int en);
-int  zdm_is_enabled(void);
-
-/* Log an event */
-void zdm_log(zdm_event_type_t type, const char *text);
-
-/* Dump all events via kprintf */
-void zdm_dump(void);
-
-/* Clear event buffer */
-void zdm_clear(void);
-
-/* Access raw events for overlay drawing */
-int  zdm_event_count(void);
-const zdm_event_t *zdm_event_at(int idx);
+static inline void zdm_set_enabled(int en) { (void)en; }
+static inline int zdm_is_enabled(void) { return 0; }
+static inline void zdm_log(zdm_event_type_t type, const char *text) { (void)type; (void)text; }
+static inline void zdm_dump(void) { }
+static inline void zdm_clear(void) { }
+static inline int zdm_event_count(void) { return 0; }
+static inline const void *zdm_event_at(int idx) { (void)idx; return 0; }
 
 #endif

@@ -34,13 +34,22 @@ ARFLAGS := rcs
 MKDIR := mkdir -p
 
 PKG_CFLAGS ?= -std=c99 -Wall -Wextra -O2 -g \
-	-ffreestanding -fno-stack-protector -fno-pic -fno-pie -mno-red-zone
+	-ffreestanding -fno-stack-protector -fno-pic -fno-pie -mno-red-zone \
+	-mno-sse -mno-sse2
 
 # ── Include paths ──
 #  * the public headers of the base packages (libc, ABI, ZircApp, gui);
 #  * the kernel headers, because gui/*.h pull `desktop.h` -> kernel types;
 #  * the freestanding stdio/OpenWeb headers shared with the CodeOS userspace;
 #  * every app package's own src/, because home.c includes its siblings.
+#
+# -mno-sse/-mno-sse2 are not an optimisation choice: the Zircon kernel runs
+# user programs without an FXSAVE area, so an SSE instruction in user mode
+# raises #UD (invalid opcode) rather than faulting on memory.  The symptom
+# was zircon_init dying at its first memset with
+# "!!! UD (vec 6) at RIP=0x401363" -- xorpd %xmm0,%xmm0 inside the libc's
+# memset.  The CodeOS tree is built the same way (the kernel and its
+# userspace both use -mno-sse), so this is the ABI the whole tree expects.
 APP_INCLUDES := $(addprefix -I$(ZROOT)/pkgs/apps/,\
 	$(addsuffix /src,$(notdir $(wildcard $(ZROOT)/pkgs/apps/*))))
 
