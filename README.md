@@ -64,14 +64,17 @@ The kernel is built in-tree from the vendored sources under `kernel/`, so
 ## Checking it
 
 ```sh
+make store-check                    # the store's catalogue and installed set (host)
 python3 scripts/zircon_boot_check.py   # boots the ISO and reads the serial log
 ```
 
-It asserts that the kernel booted, that the bas probe ran
-`/bin/bas-selftest` to completion (`BAS: done status=0`), and that the
-compositor and the app store came up. A framebuffer is required, so the
-check uses `-vga std -display none`; with `-vga none` the kernel has no
-framebuffer and Zircon's userspace launch is skipped.
+`store-check` compiles the store's logic against the real source and drives
+it: the catalogue, and the installed set the Home grid reads. The boot check
+asserts that the kernel booted, that the bas probe ran `/bin/bas-selftest` to
+completion (`BAS: done status=0`), and that the compositor and the app store
+came up. A framebuffer is required, so the check uses `-vga std -display
+none`; with `-vga none` the kernel has no framebuffer and Zircon's userspace
+launch is skipped.
 
 ## Installing
 

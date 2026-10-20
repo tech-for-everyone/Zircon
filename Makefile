@@ -219,6 +219,18 @@ iso: initramfs
 boot-check: iso
 	@python3 scripts/zircon_boot_check.py --iso $(ZIRCON_ISO)
 
+# ── Store check ──
+#
+# The store's screen needs a framebuffer, so its *logic* -- the catalogue and
+# the installed set that the Home grid reads -- is tested on the host.
+.PHONY: store-check
+store-check:
+	@cc -std=c11 -Wall -Wextra \
+	    -I$(ZROOT)/pkgs/apps/store/src -I$(ZROOT)/pkgs/core/base/zircapp/include \
+	    -o /tmp/zircon-store-test \
+	    $(ZROOT)/pkgs/apps/store/tests/store_test.c $(ZROOT)/pkgs/apps/store/src/store.c
+	@/tmp/zircon-store-test
+
 # ── Run ──
 #
 # The kernel cmdline lives in the limine config, not on the QEMU command line:
