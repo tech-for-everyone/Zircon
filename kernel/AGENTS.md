@@ -380,3 +380,27 @@ every one of them presented as "the ISO boots and does nothing".
   from the app *name*, so a new app needs a case there as well as a registry
   entry.  The app store is the example: `pkgs/apps/store` owns the catalogue
   and the installed set, and the compositor asks it which apps to show.
+- **The kernel console and the compositor share one framebuffer, and the
+  console wins by scrolling.** This is what made the Zircon screen black: the
+  compositor painted the home screen once, and then the *kernel console*
+  scrolled the framebuffer (fb_putchar() shifts the whole image up when the
+  cursor reaches the bottom) — taking the UI with it.  A busy kernel (the
+  bridge used to print two lines per event read, 60 reads a second) did that
+  within a second of the screen appearing.
+  - The tell: the **window buffer still held every pixel** while the
+    framebuffer was scrolled.  When the screen is wrong, compare the client's
+    buffer with the framebuffer before looking anywhere else.
+  - The fix is ownership, in `kernel/kernel/user_wm.c` (shared with CodeOS):
+    `uw_console_to_serial()` detaches the console from the framebuffer
+    (`kprintf_set_output(0, 0)`) when the first client window is created, so
+    the log goes to the serial port and nothing can scroll the screen again.
+    It must be called from the *raw* branch of `user_wm_msg_in()` — in raw
+    mode the window is created inline, so the `want_create` path in
+    `uw_raw_tick()` never runs.
+  - `fb_cursor_invalidate()` after the blit: the cursor saves the pixels
+    under it, and after the client repaints, that copy is the previous
+    screen — moving the cursor restored the old image and left a black patch.
+  - `lvgl_port_ready()` is always false (only `lvgl_wm_init()` calls
+    `lvgl_port_init()`, and only the `lvgl_port_ready()` branch reaches that),
+    so the raw presenter is the only presenter in this tree.  There is no
+    LVGL desktop here to composite the canvas.
