@@ -16,6 +16,11 @@ enum wm_msg_type {
     WM_MINIMIZE   = 0x04,
     WM_MAXIMIZE   = 0x05,
     WM_MOVE_WIN   = 0x06,
+    /* The client's logical pixels are worth this many panel pixels.  A
+     * 360-wide interface on a 1080-wide panel sends 3, and the kernel
+     * replicates each logical pixel into a 3x3 block.  A client that says
+     * nothing stays at 1:1. */
+    WM_SET_SCALE  = 0x07,
 
     WM_FILL_RECT  = 0x10,
     WM_DRAW_STR   = 0x11,
@@ -34,5 +39,8 @@ enum wm_msg_type {
 };
 
 #define WM_WIN_ID_NONE 0xFF
+
+/* Flags for WM_SET_SCALE. */
+#define WM_FLAG_FULLSCREEN 0x01   /* the client owns the whole panel */
 
 #endif

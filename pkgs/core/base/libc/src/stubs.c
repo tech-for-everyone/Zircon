@@ -85,6 +85,13 @@ int zs_ipc_send(const zircon_ipc_msg_t *msg) {
 int zs_fb_info(zircon_fb_info_t *info) {
     return (int)syscall_1(SYSCALL_FB_INFO, (long)info);
 }
+int zs_device_info(zircon_device_info_t *info) {
+    /* GET_INFO command 4: the device profile.  The kernel returns the
+     * struct's size; the helpers here all answer 0 for "ok", so translate
+     * it.  A kernel without device support returns -1. */
+    long r = syscall_3(SYSCALL_GET_INFO, 4, (long)info, (long)sizeof(*info));
+    return (r == (long)sizeof(*info)) ? 0 : -1;
+}
 int zs_input_poll(zircon_input_ev_t *ev) {
     return (int)syscall_1(SYSCALL_INPUT_POLL, (long)ev);
 }

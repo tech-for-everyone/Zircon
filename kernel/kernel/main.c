@@ -46,6 +46,7 @@
 #include "csl.h"
 #include "shell.h"
 #include "zircon.h"
+#include "device.h"
 #include "display_bridge.h"
 #include "audio_mixer.h"
 #include "user_wm.h"
@@ -80,11 +81,15 @@ extern const char *limine_get_cmdline(void);
 /* ─── Zircon UI pump: drives user_wm_tick + input + cursor in Zircon mode
  *  (no LVGL compositor, so we do it from a kernel thread) ─── */
 static void zircon_ui_pump(void) {
-    /* Initialize and show mouse cursor */
-    extern void fb_cursor_init(void);
-    extern void fb_cursor_show(void);
-    fb_cursor_init();
-    fb_cursor_show();
+    /* The cursor belongs to a device with a pointer.  A touch-only phone
+     * has no pointer to show one for; a tablet or a desktop does. */
+    const zircon_device_t *dev = zircon_device();
+    if (dev->caps & ZIRCON_DEVICE_POINTER) {
+        extern void fb_cursor_init(void);
+        extern void fb_cursor_show(void);
+        fb_cursor_init();
+        fb_cursor_show();
+    }
 
     for (;;) {
         /* Poll PS/2 + USB input (keyboard + mouse) */
@@ -211,6 +216,10 @@ void kernel_main(uint32_t magic __attribute__((unused)),
 
     /* Framebuffer early */
     limine_setup_fb();
+    /* Which device is this?  The panel is known now, and the command line
+     * may name a device to emulate ("zircon.device=tablet-1024x768").
+     * Userspace asks for the answer with SYSCALL_GET_INFO command 4. */
+    zircon_device_init(limine_get_cmdline(), fb_getwidth(), fb_getheight());
     bootsplash_init();
     fb_clear();
     fb_putchar('Z'); fb_putchar('i'); fb_putchar('r'); fb_putchar('c');

@@ -23,6 +23,14 @@ No Google services. No sign-in required.
   description, and the installed set behind it: tap a row to open the app,
   tap its badge to take it off (or put it back on) the Home screen. The
   store owns that set, so the Home grid and the Store can never disagree.
+- **Device support** — the kernel knows the phones and tablets it drives
+  (`kernel/kernel/device.h`): a panel, the logical screen the interface is
+  laid out for, and the scale between them, so a 1080x2400 phone is a
+  360x800 interface at 3x. The compositor asks the kernel which device it
+  is running as and lays out for it — two columns of icons on a phone, four
+  to six on a tablet — and the bridge scales the surface to the panel. Boot
+  the "Zircon (Tablet)" or "Zircon (Phone)" entry to try a layout without
+  the hardware.
 - **Real app screens** — ZircApp hosts each built-in app on its own screen:
   a seven-segment Clock that reads the CMOS RTC, a working integer
   Calculator, a Kall dial pad, Notes, an in-app Terminal, Music,

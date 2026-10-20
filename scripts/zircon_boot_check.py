@@ -93,6 +93,17 @@ COMPOSITOR = [
     r"home: all apps registered \(\d+ apps\)",
 ]
 
+# The device.  The kernel picks the profile (kernel/device.h) and the
+# compositor lays out for it, so the two lines have to agree: the kernel
+# names the device, and the compositor reports the screen it laid out.
+DEVICE = [
+    # the kernel: which device it picked
+    r"device: \S+ \((phone|tablet|desktop),",
+    # the compositor: the screen it laid out for it
+    r"zircon: device \S+ \((phone|tablet|desktop)\) \d+x\d+ logical",
+    r"Zircon (phone|tablet|desktop) mode: \d+x\d+ logical screen, \d+ columns, \d+x scale",
+]
+
 # A failure anywhere is a failure, even if every expected line is present.
 REJECT = [
     r"BAS: FAIL",
@@ -151,6 +162,9 @@ def main():
     for pat in COMPOSITOR:
         if not re.search(pat, log):
             failures.append(f"compositor log missing: {pat}")
+    for pat in DEVICE:
+        if not re.search(pat, log):
+            failures.append(f"device log missing: {pat}")
     for pat in FLEXIBLE:
         if not re.search(pat, log):
             failures.append(f"missing: {pat}")

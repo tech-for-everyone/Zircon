@@ -163,6 +163,35 @@ typedef struct {
     uint64_t reserved1;
 } zircon_input_ev_t;
 
+/* ── SYSCALL_GET_INFO command 4 payload (kernel `codeos_device_info_t`) ──
+ * The device the kernel is running as.  panel_* is the panel in pixels,
+ * ui_* the logical screen the interface is laid out for, and scale the
+ * number of panel pixels per logical pixel.  A 1080x2400 phone is a
+ * 360x800 logical screen at 3x, which is why the interface is laid out in
+ * logical pixels and scaled on the way to the panel.
+ *
+ * This is a mirror of the kernel's struct: same fields, same order, same
+ * sizes.  If one changes, the other has to.
+ */
+typedef struct {
+    uint32_t panel_w;
+    uint32_t panel_h;
+    uint32_t ui_w;
+    uint32_t ui_h;
+    uint32_t scale;
+    uint32_t form;      /* 0 = phone, 1 = tablet */
+    uint32_t caps;      /* bit 0 touch, bit 1 pointer, bit 2 keyboard */
+    char     name[24];
+} zircon_device_info_t;
+
+/* Device form factors and input capabilities (kernel/device.h). */
+#define ZIRCON_DEVICE_PHONE    0
+#define ZIRCON_DEVICE_TABLET   1
+#define ZIRCON_DEVICE_DESKTOP  2
+#define ZIRCON_DEVICE_TOUCH    0x01
+#define ZIRCON_DEVICE_POINTER  0x02
+#define ZIRCON_DEVICE_KEYBOARD 0x04
+
 /* ── Userspace syscall helpers (implemented in stubs.c) ──
  * Thin typed wrappers over the native `int $0x80` ABI. */
 
@@ -179,6 +208,10 @@ int zs_ipc_send(const zircon_ipc_msg_t *msg);
 
 /* Fill *info with the current framebuffer geometry. Returns 0 or -1. */
 int zs_fb_info(zircon_fb_info_t *info);
+
+/* Fill *info with the device profile the kernel is running as.  Returns 0
+ * or -1 (an old kernel without device support). */
+int zs_device_info(zircon_device_info_t *info);
 
 /* Poll input. Fills *ev and returns ev.type (0 = none, 1 = key). */
 int zs_input_poll(zircon_input_ev_t *ev);

@@ -89,17 +89,36 @@ extern int usleep(unsigned int usec);
 /* ── Built-in app: Home Screen ── */
 extern zircapp_app_t home_app;
 
-/* Screen dimensions — set at runtime from framebuffer.
- * Must stay under the kernel bridge's 1 MiB software-canvas cap: W*H*4 <= 0x100000. */
+/* Screen dimensions — the *logical* screen, set at runtime from the device
+ * profile the kernel reports.  A 1080x2400 phone is a 360x800 logical
+ * screen, and the bridge scales it up to the panel; a tablet is laid out at
+ * its own width.  Must stay under the kernel bridge's 1 MiB software-canvas
+ * cap: W*H*4 <= 0x100000. */
 static int SCREEN_W;
 static int SCREEN_H;
+
+/* The device: its form factor, its input, and the scale the bridge should
+ * apply.  Filled from the kernel's device table (SYSCALL_GET_INFO command
+ * 4); a kernel without device support falls back to the framebuffer. */
+static int DEVICE_SCALE = 1;
+static int DEVICE_FORM  = ZIRCON_DEVICE_PHONE;
+static int DEVICE_CAPS  = ZIRCON_DEVICE_TOUCH;
+
+static const char *device_form_name(int form) {
+    if (form == ZIRCON_DEVICE_TABLET) return "tablet";
+    if (form == ZIRCON_DEVICE_DESKTOP) return "desktop";
+    return "phone";
+}
 
 #define HEADER_H  44
 #define FOOTER_H  28
 #define GRID_MRG  12
 #define CELL_GAP  8
 #define CELL_H    57
-#define COLS      2
+/* Icons per row: one per ~200 logical pixels, so a phone shows two and a
+ * tablet four, five or six.  It is a variable, not a constant, because the
+ * device decides. */
+static int COLS = 2;
 
 /* Catppuccin-ish palette, ARGB. */
 #define COL_BAR     0xFF1E1E2E
@@ -646,9 +665,10 @@ static void store_tap(int x, int y) {
 
 /* ── Layout + painting ── */
 static void cell_rect(int idx, int *x, int *y, int *w, int *h) {
-    int cw = (SCREEN_W - GRID_MRG * (COLS + 1)) / COLS;
-    *x = GRID_MRG + (idx % COLS) * (cw + GRID_MRG);
-    *y = HEADER_H + GRID_MRG + (idx / COLS) * (CELL_H + CELL_GAP);
+    int cols = COLS > 0 ? COLS : 2;
+    int cw = (SCREEN_W - GRID_MRG * (cols + 1)) / cols;
+    *x = GRID_MRG + (idx % cols) * (cw + GRID_MRG);
+    *y = HEADER_H + GRID_MRG + (idx / cols) * (CELL_H + CELL_GAP);
     *w = cw; *h = CELL_H;
 }
 
@@ -787,7 +807,19 @@ static void app_key(int key) {
 
 static void handle_event(const uint8_t *p) {
     switch (p[0]) {
-    case WM_EVENT_CONN: win_handle = p[1]; have_window = 1; break;
+    case WM_EVENT_CONN:
+        win_handle = p[1];
+        have_window = 1;
+        /* Tell the bridge how big this device's pixels are, and that this
+         * client owns the whole panel: the kernel then clears the backdrop
+         * around the interface, so a letterboxed phone layout on a bigger
+         * panel is framed rather than surrounded by stale framebuffer. */
+        {
+            uint8_t sc[4] = { WM_SET_SCALE, (uint8_t)win_handle,
+                               (uint8_t)DEVICE_SCALE, WM_FLAG_FULLSCREEN };
+            wm_send(sc, 4);
+        }
+        break;
     case WM_EVENT_CLOSED: have_window = 0; break;
     case WM_EVENT_KEY: { uint32_t k = (uint32_t)p[2] | ((uint32_t)p[3] << 8) | ((uint32_t)p[4] << 16) | ((uint32_t)p[5] << 24); on_key((int)k); break; }
     case WM_EVENT_MOUSE: { int x = (int)(int16_t)((uint16_t)p[2] | ((uint16_t)p[3] << 8)); int y = (int)(int16_t)((uint16_t)p[4] | ((uint16_t)p[5] << 8)); on_mouse(x, y, p[6] != 0); break; }
@@ -857,16 +889,45 @@ int main(int argc, char **argv) {
     printf("║   Google-free mobile/desktop OS            ║\n");
     printf("╚══════════════════════════════════════════╝\n");
 
-    zircon_fb_info_t fb;
-    if (zs_fb_info(&fb) == 0 && fb.width > 0 && fb.height > 0) {
-        zircapp_phone_set_screen((int)fb.width, (int)fb.height);
+    /* Which device is this?
+     *
+     * The kernel owns the device table (kernel/device.h): it knows the panel,
+     * the logical screen the interface should be laid out for, the scale
+     * between them and what the device can do.  Asking it is better than
+     * guessing from the framebuffer, because the framebuffer says nothing
+     * about the density or the form factor.
+     *
+     * A kernel without device support falls back to the framebuffer, which
+     * is the old behaviour: a 1:1 screen with no scale. */
+    zircon_device_info_t dev;
+    if (zs_device_info(&dev) == 0 && dev.ui_w > 0 && dev.ui_h > 0) {
+        SCREEN_W = (int)dev.ui_w;
+        SCREEN_H = (int)dev.ui_h;
+        DEVICE_SCALE = dev.scale > 0 ? (int)dev.scale : 1;
+        DEVICE_FORM  = (int)dev.form;
+        DEVICE_CAPS  = (int)dev.caps;
+        printf("zircon: device %s (%s) %dx%d logical, %ux%u panel, %dx scale\n",
+               dev.name, device_form_name(DEVICE_FORM),
+               SCREEN_W, SCREEN_H, dev.panel_w, dev.panel_h, DEVICE_SCALE);
     } else {
-        zircapp_phone_set_screen(360, 640);
+        zircon_fb_info_t fb;
+        if (zs_fb_info(&fb) == 0 && fb.width > 0 && fb.height > 0) {
+            SCREEN_W = (int)fb.width;
+            SCREEN_H = (int)fb.height;
+        } else {
+            SCREEN_W = 360;
+            SCREEN_H = 640;
+        }
+        printf("zircon: device unknown, using the framebuffer %dx%d\n", SCREEN_W, SCREEN_H);
     }
 
-    /* Initialize dynamic screen dimensions */
-    SCREEN_W = zircapp_phone_get_width();
-    SCREEN_H = zircapp_phone_get_height();
+    /* One icon per ~200 logical pixels: two on a phone, four to six on a
+     * tablet. */
+    COLS = SCREEN_W / 200;
+    if (COLS < 2) COLS = 2;
+    if (COLS > 6) COLS = 6;
+
+    zircapp_phone_set_screen(SCREEN_W, SCREEN_H);
 
     gui_desktop_init(SCREEN_W, SCREEN_H);
     gui_window_init(); zircapp_init();
@@ -874,7 +935,8 @@ int main(int argc, char **argv) {
     zircapp_phone_init(); zircapp_register(&home_app);
 
     printf("Zircon ready — %d app(s) registered\n", zircapp_count());
-    printf("Zircon mobile mode: touch screen %dx%d\n", SCREEN_W, SCREEN_H);
+    printf("Zircon %s mode: %dx%d logical screen, %d columns, %dx scale\n",
+           device_form_name(DEVICE_FORM), SCREEN_W, SCREEN_H, COLS, DEVICE_SCALE);
 
     zircapp_launch("Home");
 

@@ -404,3 +404,22 @@ every one of them presented as "the ISO boots and does nothing".
     `lvgl_port_init()`, and only the `lvgl_port_ready()` branch reaches that),
     so the raw presenter is the only presenter in this tree.  There is no
     LVGL desktop here to composite the canvas.
+- **The device table is the kernel's, and the compositor lays out for it.**
+  `kernel/kernel/device.h` holds the phones and the tablets; the kernel
+  picks one at boot (`zircon.device=` on the command line wins, then a
+  matching panel, then the geometry) and the compositor asks for it with
+  `SYSCALL_GET_INFO` command 4.  A 1280x800 panel is a tablet (six columns
+  of icons); `zircon.device=phone-412x915` gives a phone (two columns, in a
+  centred column, with the backdrop around it).
+  - The limine boot entries are indexed from **one**, not zero: entry 1 is
+    the first one in the file.  `default_entry: 0` means "the first", and
+    `default_entry: 3` is "/Zircon (Tablet)".  Getting this wrong boots
+    the *Recovery* entry, whose command line has no device in it, and the
+    symptom is "the device option is ignored".
+  - The panel is not the screen.  A 1080x2400 phone is a 360x800 logical
+    screen at 3x; the compositor lays out in logical pixels and the bridge
+    scales the surface up.  The scale has to fit the panel, so on a
+    1280x800 panel it is clamped to 1 and the logical screen is cropped.
+  - The area around a letterboxed interface is the *backdrop*, not black:
+    the presenter fills the panel itself, because `fb_fill()` goes through
+    the pixelman compositing, which is a no-op in this tree.
