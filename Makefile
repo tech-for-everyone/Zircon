@@ -244,6 +244,7 @@ run: iso
 		-cdrom $(ZIRCON_ISO) \
 		-boot order=d \
 		-serial stdio \
+		-display sdl \
 		-vga std
 	# NOT +smap: the CodeOS kernel faults immediately once it turns SMAP on
 	# (PF at CR2=0xffff800000241208 err=1).  SMEP alone is fine, so this is
