@@ -129,6 +129,36 @@ Makefiles detect this with `command -v`, so `make LD=...` still overrides.
 - **Assert the fix as a pair, and re-run the revert.** Both defects here were "it is green and it is still broken", so a single passing boot proves little. Stash the change, rebuild the kernel *and* the ISO, and confirm the marker lines revert to the failure text; only then is the assertion known to be sensitive. Reverting `script.c` brings back `script: cannot open '/scripts/test1.script'` verbatim, which is what makes the passing log trustworthy.
 - Only ship files something reads. The image used to write `/etc/shell.conf`, `/etc/term.conf` and `/etc/codeos.conf`; no code in the tree reads any of them, and the sources for the first two do not exist. The real convention is `/etc/hostname` (read by `zircon-info`), `/etc/users.conf`, `/etc/wifi.conf` and `/etc/locale.conf` (written by `installer_qt.c`).
 
+## The mounted volume is now the writable layer (shared kernel)
+- The same kernel change as the CodeOS tree: the in-memory node table
+  (`fs.c`) is the **base** -- the initramfs and what the kernel seeds at
+  boot -- and the **mounted ext2 volume is the writable layer**.  A path
+  is looked for in the volume first and in the base second, and the
+  writes go to the volume, so a file a program writes survives the next
+  boot.  The base is never written to at runtime.
+- **The current directory is a path, not an index into the table.** It
+  used to be a node index, which cannot name a directory that lives on
+  the volume; `abs_path()` resolves "." and ".." textually now, so one
+  path means the same thing in both layers.
+- **Zircon's own userspace has no shell**, so nothing in this tree
+  exercises the write path yet -- but the kernel's `sys_open()` with
+  `O_CREAT`, `sys_write()` and `sys_mkdir()` all go through the volume,
+  so a Zircon program that writes a file writes it to the disk.
+- **The image is still a build artefact**: `make` recreates
+  `kernel/disk.img` from `kernel/disk/`, so files written to the volume
+  are lost when the image is rebuilt (they survive a reboot, which is
+  the same thing the CodeOS tree's `scripts/wfs_check.py` asserts).
+
+## The pipe struct is bigger than a page (shared kernel)
+- `pipe_t` is 4116 bytes -- a 4 KiB buffer and five counters -- and it
+  was allocated with a **single page**, so the counters lived in the
+  *next* page.  When that page was a process's page table, a pipe's
+  writer count sat inside a PML4 entry and the reaper walked the
+  corrupted page table into a general protection fault.  `PIPE_PAGES`
+  in `process.h` is now the allocation size, and both the allocation and
+  the free use it.  This is the same mistake as the one in
+  `xs_screen_create()`.
+
 ## Todo
 1. Moss-style CCP fetch/sync — stone.index metadata, `fetch fetch`, `sync -u` (in progress)
 2. Improve kernel quality (memory, sched, syscalls, drivers)
