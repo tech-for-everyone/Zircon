@@ -33,6 +33,7 @@
 #include "device.h"
 #include "ow_http.h"
 #include "socket.h"
+#include "net.h"
 #include "../arch/x86_64/fb.h"
 #include "../drivers/keyboard.h"
 #include "../drivers/mouse.h"
@@ -45,6 +46,7 @@ extern void user_mode_force_return(void);
 /* Settings state */
 int dnd_enabled = 0;
 int airplane_mode = 0;
+static int wifi_enabled;
 
 #ifdef __aarch64__
 #define TASK_SIZE 0x0000FFFFFFFFFFFFULL
@@ -2855,10 +2857,16 @@ int64_t syscall_handler(uint64_t n, uint64_t a1, uint64_t a2, uint64_t a3,
         int cmd = (int)a1;
         const char *arg = (const char *)a2;
         switch (cmd) {
-        case 0: return wifi_init() == 0 ? 1 : 0;           /* enable */
-        case 1: return wifi_disconnect() == 0 ? 1 : 0;     /* disable */
+        case 0:
+            wifi_enabled = wifi_init() == 0;
+            return wifi_enabled ? 1 : 0;                   /* enable */
+        case 1:
+            if (wifi_disconnect() != 0) return 0;
+            wifi_enabled = 0;
+            return 1;                                      /* disable */
         case 2: if (arg) return wifi_scan((wifi_scan_result_t *)arg) == 0 ? 1 : 0; return -1; /* scan */
         case 3: if (arg) return wifi_connect(arg, (const char *)a3) == 0 ? 1 : 0; return -1; /* connect */
+        case 4: return wifi_enabled ? 1 : 0;               /* enabled state */
         default: return -1;
         }
     }
@@ -2884,6 +2892,7 @@ int64_t syscall_handler(uint64_t n, uint64_t a1, uint64_t a2, uint64_t a3,
         airplane_mode = (int)a1;
         if (airplane_mode) {
             wifi_disconnect();
+            wifi_enabled = 0;
             /* bt disable stub */
         }
         return 0;
@@ -3248,6 +3257,38 @@ int64_t syscall_handler(uint64_t n, uint64_t a1, uint64_t a2, uint64_t a3,
         addrlen = sizeof(sockaddr_in_t);
         if (a3 && copy_to_user(a3, &addrlen, sizeof(addrlen)) < 0) return -1;
         return r;
+    }
+    case SYSCALL_NET_HTTP_GET: {
+        if (!a1 || !a3 || !a4 || a2 == 0 || a2 > 65535 ||
+            a5 == 0 || a5 > 65535 || a6 > 1)
+            return -1;
+
+        char host[254];
+        char path[769];
+        int terminated = 0;
+        for (size_t i = 0; i < sizeof(host); i++) {
+            if (copy_from_user(&host[i], a1 + i, 1) < 0) return -1;
+            if (host[i] == '\0') { terminated = 1; break; }
+        }
+        if (!terminated) return -1;
+
+        terminated = 0;
+        for (size_t i = 0; i < sizeof(path); i++) {
+            if (copy_from_user(&path[i], a3 + i, 1) < 0) return -1;
+            if (path[i] == '\0') { terminated = 1; break; }
+        }
+        if (!terminated) return -1;
+
+        void *response = malloc((size_t)a5);
+        if (!response) return -1;
+        int received = a6
+            ? https_get(host, (uint16_t)a2, path, response, (uint16_t)a5)
+            : http_get(host, (uint16_t)a2, path, response, (uint16_t)a5);
+        if (received > 0 &&
+            copy_to_user(a4, response, (uint64_t)received) < 0)
+            received = -1;
+        free(response);
+        return received;
     }
 
     default:

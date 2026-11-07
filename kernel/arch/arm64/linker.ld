@@ -1,44 +1,48 @@
 /*
- * Linker script for the Zircon ARM64 kernel
- * (Samsung Galaxy S9 SM-G960U / Snapdragon SDM845).
+ * Flat ARM64 Image layout. QEMU virt has RAM at 0x40000000 and the Image
+ * header requests the Linux-compatible 0x80000 text offset.
  */
-
-ENTRY(_start)
+ENTRY(_image_start)
 
 PHDRS
 {
-    text  PT_LOAD    FLAGS(5);   /* R-X: code + rodata */
-    data  PT_LOAD    FLAGS(6);   /* RW-: data + bss   */
+    image PT_LOAD FLAGS(7);
     stack PT_GNU_STACK FLAGS(6);
 }
 
 SECTIONS
 {
-    . = 0xFFFF000000000000;
+    . = 0x40080000;
+    __image_start = .;
 
-    .text : {
-        *(.text.boot)
+    .text : ALIGN(16) {
+        KEEP(*(.text.boot.header))
+        KEEP(*(.text.boot.entry))
         *(.text)
         *(.text.*)
-    } :text
+    } :image
 
-    .rodata : {
+    .rodata : ALIGN(16) {
         *(.rodata)
         *(.rodata.*)
-    } :text
+    } :image
 
-    . = ALIGN(4096);
-
-    .data : {
+    .data : ALIGN(4096) {
         *(.data)
         *(.data.*)
-    } :data
+    } :image
 
-    .bss (NOLOAD) : {
+    .bss (NOLOAD) : ALIGN(16) {
+        __bss_start = .;
+        *(.bss.stack)
         *(.bss)
         *(.bss.*)
         *(COMMON)
-    } :data
+        . = ALIGN(16);
+        __bss_end = .;
+    } :image
+
+    __image_end = .;
 
     /DISCARD/ : {
         *(.eh_frame)

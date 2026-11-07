@@ -1,73 +1,93 @@
 /*
- * Zircon ARM64 (Samsung Galaxy S9, SM-G960U / Snapdragon SDM845)
- * kernel entry point.
- *
- * boot.S sets up a stack and calls arm64_main() with the boot
- * information pointer that the firmware/bootloader handed us
- * (x0 on entry).
+ * Zircon's first runnable AArch64 target is QEMU's ARM virt machine.
+ * The existing Galaxy S9 device tree is built separately; its Qualcomm GENI
+ * UART and boot chain need board-specific support before that device is
+ * claimed as bootable.
  */
-
 #include <stdint.h>
 #include <stddef.h>
 
-/* Qualcomm SDM845 GENI UART (debug console on the S9). */
-#define UART0_BASE 0x4a90000
+#define PL011_BASE 0x09000000UL
+#define PL011_DR   0x00
+#define PL011_FR   0x18
+#define PL011_FR_TXFF (1u << 5)
+#define UART_WAIT_LIMIT 1000000u
 
-/* Early boot UART byte output — no libc, no interrupts. */
-static inline void uart_putc(char c)
+static int uart_putc(char ch)
 {
-    volatile uint32_t *uart = (volatile uint32_t *)UART0_BASE;
-
-    /* Wait for TX FIFO not full. */
-    while ((uart[0x18 / 4] & 0x20u) == 0)
-        ;
-    uart[0] = (uint32_t)(uint8_t)c;
+    volatile uint32_t *uart = (volatile uint32_t *)PL011_BASE;
+    uint32_t wait = UART_WAIT_LIMIT;
+    while ((uart[PL011_FR / sizeof(uint32_t)] & PL011_FR_TXFF) && wait)
+        wait--;
+    if (!wait)
+        return -1;
+    uart[PL011_DR / sizeof(uint32_t)] = (uint8_t)ch;
+    return 0;
 }
 
-static void uart_puts(const char *s)
+static void uart_puts(const char *text)
 {
-    while (*s)
-        uart_putc(*s++);
+    while (*text) {
+        if (*text == '\n')
+            uart_putc('\r');
+        if (uart_putc(*text++) < 0)
+            return;
+    }
 }
 
-static void uart_puthex(uintptr_t v)
+static void uart_puthex(uint64_t value)
 {
     static const char digits[] = "0123456789abcdef";
-    char buf[16];
-    int i;
-
-    for (i = 0; i < 16; i++)
-        buf[i] = digits[(v >> ((15 - i) * 4)) & 0xf];
-    for (i = 0; i < 16; i++)
-        uart_putc(buf[i]);
+    for (int shift = 60; shift >= 0; shift -= 4)
+        uart_putc(digits[(value >> shift) & 0xf]);
 }
 
-static void banner(void)
+static uint32_t fdt_be32(const volatile uint8_t *bytes)
 {
-    uart_puts("\n");
-    uart_puts("Zircon OS ARM64 (Samsung Galaxy S9 SM-G960U)\n");
-    uart_puts("Built on the CodeOS kernel\n");
-    uart_puts("---------------------------------------------\n");
+    return ((uint32_t)bytes[0] << 24) |
+           ((uint32_t)bytes[1] << 16) |
+           ((uint32_t)bytes[2] << 8) |
+           (uint32_t)bytes[3];
 }
 
-/*
- * Called from boot.S.  `boot_info` is either a DTB pointer or the
- * bootloader's boot information structure, depending on who loaded us.
- */
+static int fdt_header_valid(uintptr_t address)
+{
+    if (!address)
+        return 0;
+    const volatile uint8_t *fdt = (const volatile uint8_t *)address;
+    if (fdt_be32(fdt) != 0xd00dfeed)
+        return 0;
+    uint32_t total_size = fdt_be32(fdt + 4);
+    return total_size >= 40 && total_size <= 16 * 1024 * 1024;
+}
+
 void arm64_main(uintptr_t boot_info)
 {
-    banner();
-    uart_puts("early: console up at 0x");
-    uart_puthex(UART0_BASE);
-    uart_puts("\n");
+    uint64_t current_el;
+    __asm__ volatile("mrs %0, CurrentEL" : "=r"(current_el));
 
-    uart_puts("early: boot info @ 0x");
+    uart_puts("\nZircon AArch64 kernel\n");
+    uart_puts("CodeOS ARM64 early boot\n");
+    uart_puts("early: PL011 console at 0x");
+    uart_puthex(PL011_BASE);
+    uart_puts("\nearly: CurrentEL=0x");
+    uart_puthex(current_el);
+    uart_puts("\nearly: FDT pointer=0x");
     uart_puthex(boot_info);
     uart_puts("\n");
 
-    uart_puts("early: waiting for full kernel bring-up\n");
+    if (!fdt_header_valid(boot_info)) {
+        uart_puts("boot error: missing or invalid flattened device tree\n");
+        for (;;)
+            __asm__ volatile("wfe");
+    }
 
-    /* No MMU / interrupt controller / scheduler yet: park the core. */
+    uart_puts("early: valid device tree, bytes=0x");
+    uart_puthex(fdt_be32((const volatile uint8_t *)boot_info + 4));
+    uart_puts("\n");
+    uart_puts("ZIRCON_ARM64_BOOT_OK\n");
+    uart_puts("early: kernel is running; scheduler and device drivers are not initialized\n");
+
     for (;;)
         __asm__ volatile("wfe");
 }

@@ -53,6 +53,11 @@
 #define SYSCALL_DUP2              34
 #define SYSCALL_SHM               35
 #define SYSCALL_GET_INFO          36
+#define CODEOS_INFO_KERNEL_VERSION 0
+#define CODEOS_INFO_KERNEL_NAME    1
+#define CODEOS_INFO_APPHOST_CONTEXT 2
+#define CODEOS_INFO_RTC_TIME       3
+#define CODEOS_INFO_DEVICE         4
 #define SYSCALL_WEB               37
 #define SYSCALL_STAT              38
 #define SYSCALL_CHDIR             39
@@ -103,6 +108,7 @@
 #define SYSCALL_DND_GET            84
 #define SYSCALL_AIRPLANE_SET       85
 #define SYSCALL_AIRPLANE_GET       86
+#define SYSCALL_NET_HTTP_GET       87 /* a1=host,a2=port,a3=path,a4=buf,a5=cap,a6=tls */
 
 /* ── Zircon IPC (SYSCALL_ZIRCON_IPC) sub-commands ──
  * a1 = 0: return shared ring physical address (or -1 if absent)
@@ -179,9 +185,9 @@ typedef struct {
     uint32_t ui_w;
     uint32_t ui_h;
     uint32_t scale;
-    uint32_t form;      /* 0 = phone, 1 = tablet */
+    uint32_t form;      /* 0 = phone, 1 = tablet, 2 = desktop */
     uint32_t caps;      /* bit 0 touch, bit 1 pointer, bit 2 keyboard */
-    char     name[24];
+    char     name[24];  /* profile name, e.g. "sm-g960u" */
 } zircon_device_info_t;
 
 /* Device form factors and input capabilities (kernel/device.h). */

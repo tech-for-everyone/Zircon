@@ -141,7 +141,7 @@ ZC_OBJS = zircapp_host.o zircapp_platform.o zircapp_ow_stub.o \
           zc_home.o zc_kall.o zc_sms.o zc_settings.o zc_camera.o \
           zc_clock.o zc_calculator.o zc_music.o zc_gallery.o zc_browser.o \
           zc_notes.o zc_files.o zc_terminal.o zc_weather.o zc_about.o \
-          zc_notifications.o zc_store.o
+          zc_notifications.o zc_store.o zc_moveon.o
 
 zircapp: $(PKG_SRC)/zircapp/src/zircapp.c \
          $(PKG_SRC)/zircapp/src/zircapp_platform.c \
@@ -156,6 +156,7 @@ zircapp: $(PKG_SRC)/zircapp/src/zircapp.c \
          $(ZC_PKGS)/apps/terminal/src/terminal.c $(ZC_PKGS)/apps/weather/src/weather.c \
          $(ZC_PKGS)/apps/about/src/about.c $(ZC_PKGS)/apps/notifications/src/notifications.c \
          $(ZC_PKGS)/apps/store/src/store.c \
+         $(ZC_PKGS)/apps/moveon/src/moveon.c \
          $(wildcard $(ZC_PKGS)/core/base/zircapp/port/*.h) \
          crt0.o $(LIB_OBJ)
 	$(CC) $(ZC_CFLAGS) -c -o zircapp_host.o $(PKG_SRC)/zircapp/src/zircapp.c
@@ -180,6 +181,7 @@ zircapp: $(PKG_SRC)/zircapp/src/zircapp.c \
 	$(CC) $(ZC_CFLAGS) -c -o zc_about.o $(ZC_PKGS)/apps/about/src/about.c
 	$(CC) $(ZC_CFLAGS) -c -o zc_notifications.o $(ZC_PKGS)/apps/notifications/src/notifications.c
 	$(CC) $(ZC_CFLAGS) -c -o zc_store.o $(ZC_PKGS)/apps/store/src/store.c
+	$(CC) $(ZC_CFLAGS) -c -o zc_moveon.o $(ZC_PKGS)/apps/moveon/src/moveon.c
 	$(LD) $(USER_LDFLAGS) -T link.ld -o $@ $(ZC_OBJS) crt0.o $(LIB_OBJ)
 
 define android-prog-rule
@@ -195,10 +197,13 @@ terminal: $(TERM)/terminal.c crt0.o $(LIB_OBJ)
 	$(LD) $(USER_LDFLAGS) -T link.ld -o $@ terminal.o crt0.o $(LIB_OBJ)
 
 OPENWEB_SRC = $(PKG_SRC)/openweb/src
-openweb: $(OPENWEB_SRC)/openweb.c $(OPENWEB_SRC)/ow_html.c crt0.o $(LIB_OBJ)
+openweb: $(OPENWEB_SRC)/openweb.c $(OPENWEB_SRC)/ow_html.c \
+         $(OPENWEB_SRC)/ow_engine.c $(CODEOS_ROOT)/src/jengine.c crt0.o $(LIB_OBJ)
 	$(CC) $(USER_CFLAGS) -c -o openweb.o $(OPENWEB_SRC)/openweb.c
 	$(CC) $(USER_CFLAGS) -c -o ow_html.o $(OPENWEB_SRC)/ow_html.c
-	$(LD) $(USER_LDFLAGS) -T link.ld -o $@ openweb.o ow_html.o crt0.o $(LIB_OBJ)
+	$(CC) $(USER_CFLAGS) -I$(CODEOS_ROOT)/include -c -o ow_engine.o $(OPENWEB_SRC)/ow_engine.c
+	$(CC) $(USER_CFLAGS) -I$(CODEOS_ROOT)/include -c -o jengine.o $(CODEOS_ROOT)/src/jengine.c
+	$(LD) $(USER_LDFLAGS) -T link.ld -o $@ openweb.o ow_html.o ow_engine.o jengine.o crt0.o $(LIB_OBJ)
 
 # ld-codeos: userspace dynamic linker (standalone, no crt0 or libc)
 LD_SRC = $(PKG_SRC)/ld-codeos/src

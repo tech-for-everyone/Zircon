@@ -9,6 +9,7 @@
  *      ~60 Hz tick, so an app only ever sees dispatcher callbacks.
  * ───────────────────────────────────────────────────────────── */
 #include <zircapp.h>
+#include <zircapp_module_v1.h>
 #include <zircon_abi.h>
 
 #include <string.h>
@@ -19,9 +20,38 @@ extern int usleep(unsigned int usec);
 
 static zircapp_app_t *apps[ZIRCAPP_MAX_APPS];
 static int app_count;
+static zircapp_app_t module_apps[ZIRCAPP_MAX_APPS];
+static zircapp_module_v1_t module_descriptors[ZIRCAPP_MAX_APPS];
+static int module_count;
+
+static void module_init_adapter(zircapp_app_t *app) {
+    const zircapp_module_v1_t *module = app ? app->userdata : 0;
+    if (module && module->init)
+        module->init();
+}
+
+static void module_event_adapter(zircapp_app_t *app, const zircapp_event_t *event) {
+    const zircapp_module_v1_t *module = app ? app->userdata : 0;
+    if (!module || !module->event || !event)
+        return;
+    zircapp_module_event_v1_t translated = {
+        .type = (uint32_t)event->type,
+        .x = event->touch_count > 0 ? event->touch[0].x : event->mx,
+        .y = event->touch_count > 0 ? event->touch[0].y : event->my,
+        .key = event->key,
+    };
+    module->event(&translated);
+}
+
+static void module_stop_adapter(zircapp_app_t *app) {
+    const zircapp_module_v1_t *module = app ? app->userdata : 0;
+    if (module && module->stop)
+        module->stop();
+}
 
 void zircapp_init(void) {
     app_count = 0;
+    module_count = 0;
     for (int i = 0; i < ZIRCAPP_MAX_APPS; i++)
         apps[i] = 0;
 }
@@ -30,10 +60,41 @@ int zircapp_register(zircapp_app_t *app) {
     if (!app || app_count >= ZIRCAPP_MAX_APPS)
         return -1;
     apps[app_count++] = app;
-    app->state = ZIRCAPP_APP_RUNNING;
-    if (app->init)
-        app->init(app);
+    app->state = ZIRCAPP_APP_STOPPED;
     return app_count - 1;
+}
+
+void zircapp_background_all(void) {
+    for (int i = 0; i < app_count; i++)
+        if (apps[i] && apps[i]->state == ZIRCAPP_APP_RUNNING)
+            apps[i]->state = ZIRCAPP_APP_BACKGROUND;
+}
+
+int zircapp_register_module_v1(const zircapp_module_v1_t *module) {
+    if (!module || module->abi_version != ZIRCAPP_MODULE_ABI_V1 ||
+        module->struct_size < sizeof(*module) || !module->name ||
+        module->name_len == 0 || module->name_len >= ZIRCAPP_APP_NAME_MAX ||
+        module_count >= ZIRCAPP_MAX_APPS || app_count >= ZIRCAPP_MAX_APPS)
+        return -1;
+    for (uint32_t i = 0; i < module->name_len; i++)
+        if (module->name[i] < 32 || module->name[i] == 127)
+            return -1;
+    if (module->name[module->name_len] != 0 ||
+        zircapp_find(module->name))
+        return -1;
+
+    int slot = module_count++;
+    module_descriptors[slot] = *module;
+    zircapp_app_t *app = &module_apps[slot];
+    memset(app, 0, sizeof(*app));
+    memcpy(app->name, module->name, module->name_len);
+    app->name[module->name_len] = 0;
+    app->init = module_init_adapter;
+    app->event = module_event_adapter;
+    app->stop = module_stop_adapter;
+    app->userdata = &module_descriptors[slot];
+    app->win_id = -1;
+    return zircapp_register(app);
 }
 
 int zircapp_count(void) {
@@ -55,7 +116,7 @@ zircapp_app_t *zircapp_find(const char *name) {
 
 void zircapp_broadcast(const zircapp_event_t *ev) {
     for (int i = 0; i < app_count; i++) {
-        if (!apps[i] || apps[i]->state == ZIRCAPP_APP_STOPPED)
+        if (!apps[i] || apps[i]->state != ZIRCAPP_APP_RUNNING)
             continue;
         if (apps[i]->event)
             apps[i]->event(apps[i], ev);
@@ -85,9 +146,33 @@ int zircapp_launch(const char *name) {
     return -1;
 }
 
+int zircapp_activate(const char *name) {
+    zircapp_app_t *app = zircapp_find(name);
+    if (!app)
+        return -1;
+    if (app->state == ZIRCAPP_APP_RUNNING) {
+        for (int i = 0; i < app_count; i++)
+            if (apps[i] == app) return i;
+        return -1;
+    }
+    zircapp_background_all();
+    int was_stopped = app->state == ZIRCAPP_APP_STOPPED;
+    app->state = ZIRCAPP_APP_RUNNING;
+    if (was_stopped && app->init)
+        app->init(app);
+    for (int i = 0; i < app_count; i++)
+        if (apps[i] == app) return i;
+    return -1;
+}
+
 void zircapp_set_draw_fn(zircapp_app_t *app, zircapp_draw_fn draw) {
     if (app)
         app->draw = draw;
+}
+
+void zircapp_render(zircapp_app_t *app, const zircapp_canvas_t *canvas) {
+    if (app && app->state == ZIRCAPP_APP_RUNNING && app->render && canvas)
+        app->render(app, canvas);
 }
 
 /* ── Mobile OS Implementation ── */

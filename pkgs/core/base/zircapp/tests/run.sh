@@ -13,6 +13,7 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 
 cp "$pkg/include/zircapp.h" "$out/"
+cp "$pkg/include/zircapp_module_v1.h" "$out/"
 cp "$pkg/src/zircapp.c"     "$out/"
 cp "$here/shim/zircon_abi.h" "$out/"
 cp "$here/test_zircapp.c"    "$out/"
@@ -20,4 +21,6 @@ cp "$here/test_zircapp.c"    "$out/"
 cc=${CC:-cc}
 "$cc" -std=c99 -Wall -Wextra -Werror -O2 -I"$out" \
     -o "$out/test_zircapp" "$out/zircapp.c" "$out/test_zircapp.c"
+"$cc" -std=c99 -Wall -Wextra -Werror -I"$pkg/include" \
+    -c "$pkg/../../../template/src/module_v1.c" -o "$out/module_v1.o"
 "$out/test_zircapp"

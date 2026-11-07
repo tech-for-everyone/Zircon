@@ -59,6 +59,29 @@ pkgs/<tier>/<name>/
 That is all: `pkgs/Makefile` finds the new `manifest.json` on its own, and the
 top-level link step picks up the new objects automatically.
 
+### ZircApp modules and repository bundles
+
+The compositor shell owns home/navigation and registers the built-in app
+packages separately; Home is not a ZircApp application. Built-in C apps use
+`zircapp_app_t`, are initialized on first activation, and can render through
+the `zircapp_canvas_t` callback. Background apps do not receive foreground
+input or render callbacks. C and Rust modules can also export the versioned
+descriptor in `core/base/zircapp/include/zircapp_module_v1.h` and register it
+with `zircapp_register_module_v1()`. Examples are in
+`template/src/module_v1.c` and `template/rust/`. A published app bundle uses
+the `zircon-app-1` manifest format in `template/app-manifest.example.json`;
+`../scripts/zircapp_repo.py` validates package archives and signs/verifies
+curated repository indexes.
+
+The Store currently handles apps linked into Zircon. The host repository tool
+can verify and stage packages under `/apps/`, but those binaries are not yet
+discoverable or launchable by the on-device Store.
+
+The browser's HTTP and HTTPS GET shims use `SYSCALL_NET_HTTP_GET`; the kernel
+owns transport, TLS policy, and bounded user-buffer copying. Zircon's x86_64
+kernel uses its OpenSSL backend and RTC-backed certificate validation. ARM64
+does not yet implement this network syscall.
+
 ## The per-package Makefile
 
 Every package Makefile is the same handful of lines; all the toolchain and

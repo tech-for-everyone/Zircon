@@ -1,7 +1,7 @@
 {
   "name": "files",
   "version": "1.0.0",
-  "description": "Zircon Files app \u2014 a simple file-manager list",
+  "description": "Browse folders, preview text files, and create folders",
   "license": "MIT",
   "type": "source",
   "category": "Apps",

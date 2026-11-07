@@ -14,6 +14,17 @@
 #define WS_OP_PING   0x9
 #define WS_OP_PONG   0xA
 
+#define WS_CONN_NONE 0
+#define WS_CONN_OPEN 1
+
+typedef struct {
+    int state;
+    int use_tls;
+    int (*send)(void *ctx, const void *data, int len);
+    int (*recv)(void *ctx, void *buf, int max_len, int timeout_ms);
+    void *ctx;
+} ws_client_t;
+
 typedef struct {
     int fin;
     uint8_t opcode;
@@ -37,6 +48,11 @@ int ws_gen_accept(const char *key, char *out, size_t out_len);
 /* Perform the client upgrade handshake over an already-connected transport
  * (w->send/w->recv must be wired by the caller). Returns 0 on success. */
 int ws_client_handshake(ws_client_t *w, const char *host, const char *path);
+int ws_connect(ws_client_t *w, const char *host, uint16_t port,
+               int use_tls, const char *path);
+int ws_send_text(ws_client_t *w, const char *text);
+int ws_recv(ws_client_t *w, void *buf, int max_len, int timeout_ms);
+void ws_close(ws_client_t *w);
 
 /* Build the server 101 response for a raw HTTP upgrade request. */
 int ws_server_handshake(const char *request, char *response, size_t resp_len);

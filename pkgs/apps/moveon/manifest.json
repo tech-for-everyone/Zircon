@@ -1,0 +1,14 @@
+{
+  "name": "moveon",
+  "version": "1.0.0",
+  "description": "Prepare Zircon user files for transfer to CodeOS",
+  "license": "MIT",
+  "type": "source",
+  "category": "Apps",
+  "dependencies": [
+    "gui",
+    "zircapp"
+  ],
+  "install_path": "/apps/moveon",
+  "source": "src/"
+}

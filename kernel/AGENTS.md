@@ -360,9 +360,10 @@ every one of them presented as "the ISO boots and does nothing".
     #GP.
   Turning the dispatcher on also made it *live* for the first time, and
   `--gc-sections` stopped hiding the subsystems it drags in: the socket layer
-  wants `tcp_*`/`ip_send`/`net_get_ip` (there is no network stack here) and
-  the X server wants `pixelman_image_*` (there is no PixelMan here).
-  `kernel/net_stubs.c` and `kernel/pixelman_stubs.c` answer them.  **A
+  requires `tcp_*`/`ip_send`/`net_get_ip`; the Zircon x86_64 build now links
+  the network stack and excludes `kernel/net_stubs.c`. The X server wants
+  `pixelman_image_*` (there is no PixelMan here), so
+  `kernel/pixelman_stubs.c` remains active. **A
   reference that only a dead-code path makes is invisible until the path
   becomes live** — that is the whole lesson of this list.
 - **The userland must be `-mno-sse`.** The kernel runs user programs without

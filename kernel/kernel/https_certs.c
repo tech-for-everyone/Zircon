@@ -1,22 +1,24 @@
-/* https_certs.c -- embedded root CA store for mbedtls client certification.
+/* https_certs.c -- embedded root CA bundle shared by Zircon TLS clients.
  *
  * The PEM bundle below is a curated subset (16 roots) of the Mozilla CA
  * list, captured from the host's /usr/share/ca-certificates/mozilla/.
  * Roots are public certificates.
  *
- * Because CodeOS has no battery-backed clock, MBEDTLS_HAVE_TIME_DATE is not
- * defined, so mbedtls skips the certificate validity-date checks -- signature
- * chains, key usage and hostname are still fully verified.
+ * The OpenSSL backend uses Zircon's RTC for certificate validity checks and
+ * fails closed when the clock is unavailable or invalid. The mbedTLS fallback
+ * retains its existing build-time date-check policy.
  */
 #include "https_certs.h"
-#include "kprintf.h"
 #include "string.h"
 
+#if !HTTPS_USE_OPENSSL
+#include "kprintf.h"
 #include "mbedtls/build_info.h"
 #include "mbedtls/x509_crt.h"
 #include "mbedtls/ssl.h"
 
 extern void mbedtls_codeos_platform_init(void);
+#endif
 
 /* Embedded CA bundle (Mozilla CA list, curated subset). */
 static const char s_ca_pem[] =
@@ -349,9 +351,11 @@ static const char s_ca_pem[] =
     "mAY\nQqszKbrAKbkTidOIijlBO8n9pu0f9GBj39ItVQGL\n-----END CERTIFICATE----"
     "-\n";
 ;
+#if !HTTPS_USE_OPENSSL
 static struct mbedtls_x509_crt s_ca_chain;
 static int s_ca_up = 0;      /* 1 = store parsed and ready */
 static char s_pem_buf[4096]; /* NUL-terminated PEM block handed to mbedtls */
+#endif
 static int s_insecure = 0;   /* dev escape hatch */
 
 const char *https_ca_pem(void) {
@@ -367,6 +371,7 @@ int https_insecure(void) {
     return s_insecure;
 }
 
+#if !HTTPS_USE_OPENSSL
 int https_ca_init(void) {
     if (s_ca_up) return 0;
     mbedtls_codeos_platform_init();
@@ -464,3 +469,4 @@ int https_trust_ca_pem(const char *pem, size_t len) {
         return -1;
     return 0;
 }
+#endif

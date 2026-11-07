@@ -31,7 +31,7 @@ static int failures;
 
 int main(void) {
     /* The catalogue. */
-    CHECK(store_count() == 15, "the catalogue has 15 apps");
+    CHECK(store_count() == 16, "the catalogue has 16 apps");
     const store_item_t *first = store_item(0);
     CHECK(first != 0, "item 0 exists");
     CHECK(first && first->name && first->name[0], "item 0 has a name");
@@ -41,6 +41,16 @@ int main(void) {
     CHECK(first && first->size_kb > 0, "item 0 has a size");
     CHECK(store_item(-1) == 0, "a negative index is not an item");
     CHECK(store_item(store_count()) == 0, "an index past the end is not an item");
+    CHECK(store_category_count() == 7, "the catalogue exposes category filters");
+    CHECK(strcmp(store_category(0), "All") == 0, "the first category shows all apps");
+    CHECK(store_category(-1) == 0, "an invalid category is rejected");
+    CHECK(store_filtered_count("notes", "All") == 1, "search matches app names case-insensitively");
+    CHECK(store_filtered_count("device", "Tools") == 1, "search matches descriptions inside a category");
+    CHECK(store_filtered_count("", "Phone") == 2, "category filtering returns phone apps");
+    CHECK(store_filtered_index(0, "notes", "All") == store_index_of("Notes"),
+          "filtered positions map back to catalogue items");
+    CHECK(store_filtered_index(1, "notes", "All") == -1, "filtered indexes reject overflow");
+    CHECK(store_filtered_count("", "Dev") == 1, "developer tools have a category filter");
 
     /* Every app the store lists must be a name the registry knows, or the
      * store would offer something the Home screen cannot open.  The names
@@ -48,7 +58,7 @@ int main(void) {
     static const char *kRegistryNames[] = {
         "Kall", "SMS", "Notifications", "Settings", "About", "Clock",
         "Calculator", "Weather", "Notes", "Files", "Camera", "Gallery",
-        "Music", "Browser", "Terminal",
+        "Music", "Browser", "Terminal", "Move On",
     };
     int listed = 0;
     for (unsigned i = 0; i < sizeof(kRegistryNames) / sizeof(kRegistryNames[0]); i++) {

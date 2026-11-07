@@ -1,7 +1,7 @@
 {
   "name": "store",
   "version": "1.0.0",
-  "description": "Zircon Store app - the app catalogue and the installed set",
+  "description": "Search the app catalog, browse categories, and manage Home apps",
   "license": "MIT",
   "type": "source",
   "category": "Apps",

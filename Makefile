@@ -24,11 +24,14 @@ ifeq ($(ARCH),arm64)
     OBJCOPY := $(shell command -v aarch64-linux-gnu-objcopy >/dev/null 2>&1 && echo aarch64-linux-gnu-objcopy || echo objcopy)
     LD := $(shell command -v ld.lld >/dev/null 2>&1 && echo "ld.lld -m aarch64elf" || echo "ld -m aarch64elf")
     BUILD := build/arm64
+    ZIRCON_ARM64_IMAGE := $(BUILD)/Image
+    ZIRCON_DTB := $(BUILD)/zircon-sm-g960u.dtb
+    QEMU_ARM64 ?= qemu-system-aarch64
     ISO_DIR := build/iso-arm64
     ISO_ROOT := $(ISO_DIR)/iso_root
     MKDIR := mkdir -p
     CP := cp
-    CFLAGS := -std=c99 -Wall -Wextra -pedantic -g -ffreestanding -nostdlib -nostartfiles -fno-stack-protector -fno-PIC -mgeneral-regs-only
+    CFLAGS := -std=c99 -Wall -Wextra -pedantic -O2 -g -ffreestanding -nostdlib -nostartfiles -fno-stack-protector -fno-PIC -fno-pie -fno-pic -fno-unwind-tables -fno-asynchronous-unwind-tables -mgeneral-regs-only
     CPPFLAGS := -I. -Ipkgs -I$(KERNEL_DIR)/arch/arm64 -Ikernel/arch/arm64/dts -D__ARM64__ -D__ZIRCON_ARM64__
     LDFLAGS := -nostdlib -static -z max-page-size=0x1000 -z noexecstack -T kernel/arch/arm64/linker.ld
 else
@@ -77,7 +80,7 @@ LIMINE_DEPLOY := $(KERNEL_DIR)/bootloader/limine-deploy
 # package objects.  ZIRCOND_OBJS / INIT_OBJS are recursive variables: they are
 # expanded inside the recipe, i.e. after the sub-make has produced the objects.
 
-.PHONY: all clean debug release run iso iso-arm64 pkgs zircapp-tests
+.PHONY: all clean debug release run iso iso-arm64 pkgs zircapp-tests zircapp-repo-check
 
 ZIRCOND_OBJS = $(shell find $(BUILD)/pkgs -name '*.o' ! -path '*/init/*' 2>/dev/null)
 INIT_OBJS    = $(shell find $(BUILD)/pkgs/core/base/libc $(BUILD)/pkgs/core/base/init -name '*.o' 2>/dev/null)
@@ -143,8 +146,11 @@ endif
 ifeq ($(ARCH),arm64)
 
 ZIRCON_ELF :=
+ZIRCON_KERNEL_ARM64 := $(BUILD)/zircon-kernel-arm64.elf
 
-all: $(ZIRCON_KERNEL_ARM64)
+.PHONY: arm64-image run-arm64 boot-check-arm64 iso-arm64
+all: arm64-image
+arm64-image: $(ZIRCON_ARM64_IMAGE) $(ZIRCON_DTB)
 
 ARM64_C_SRC := $(wildcard kernel/arch/arm64/*.c)
 ARM64_S_SRC := $(wildcard kernel/arch/arm64/*.S)
@@ -153,6 +159,9 @@ ARM64_OBJ := $(patsubst kernel/arch/arm64/%.c,$(BUILD)/%.o,$(ARM64_C_SRC)) \
 
 $(ZIRCON_KERNEL_ARM64): $(ARM64_OBJ)
 	$(LD) $(LDFLAGS) -o $@ $^
+
+$(ZIRCON_ARM64_IMAGE): $(ZIRCON_KERNEL_ARM64)
+	$(OBJCOPY) -O binary $< $@
 
 $(BUILD)/%.o: kernel/arch/arm64/%.c
 	$(MKDIR) $(dir $@)
@@ -163,9 +172,23 @@ $(BUILD)/%.o: kernel/arch/arm64/%.S
 	$(CC) $(CPPFLAGS) -c $< -o $@
 
 # DTB compilation
-$(ZIRCON_DTB): kernel/arch/arm64/dts/sm-g960u.dts
+$(ZIRCON_DTB): kernel/arch/arm64/dts/sm-g960u.dts $(wildcard kernel/arch/arm64/dts/qcom/*.dtsi)
 	$(MKDIR) $(dir $@)
-	dtc -I dts -O dtb -o $@ $<
+	dtc -I dts -O dtb -i kernel/arch/arm64/dts -o $@ $<
+
+run-arm64: $(ZIRCON_ARM64_IMAGE)
+	$(QEMU_ARM64) -machine virt,gic-version=3 -cpu cortex-a53 -m 1G \
+		-nographic -monitor none -serial stdio -no-reboot \
+		-kernel $(ZIRCON_ARM64_IMAGE)
+
+boot-check-arm64: $(ZIRCON_ARM64_IMAGE)
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/zircon_arm64_boot_check.py \
+		--qemu $(QEMU_ARM64) --image $(ZIRCON_ARM64_IMAGE)
+
+# Kept as a compatibility target: AArch64 has no x86 Limine ISO. This target
+# produces the raw Linux Image and SM-G960U DTB for a suitable ARM bootloader.
+iso-arm64: arm64-image
+	@echo "ARM64 boot files: $(ZIRCON_ARM64_IMAGE) and $(ZIRCON_DTB) (not an ISO)"
 
 endif # ARCH == arm64
 
@@ -213,8 +236,8 @@ iso: initramfs
 # ── Boot check ──
 #
 # Boots the ISO and asserts on the serial log: the kernel came up, the bas
-# probe ran /bin/bas-selftest to completion, and the compositor and the app
-# store are alive.  A green build proves none of that.
+# probe ran /bin/bas-selftest to completion, and the compositor registered
+# its ZircApp modules.  A green build proves none of that.
 .PHONY: boot-check
 boot-check: iso
 	@python3 scripts/zircon_boot_check.py --iso $(ZIRCON_ISO)
@@ -251,28 +274,6 @@ run: iso
 	# worked around here rather than fixed; re-enable +smap once the kernel
 	# side is sorted.
 
-# ── ISO (ARM64 for Samsung Galaxy S9) ──
-
-iso-arm64: $(ZIRCON_KERNEL_ARM64) $(ZIRCON_DTB)
-	$(MKDIR) $(ISO_ROOT)/boot
-	$(CP) $(ZIRCON_KERNEL_ARM64) $(ISO_ROOT)/boot/zircon-kernel-arm64.bin
-	$(CP) $(ZIRCON_DTB) $(ISO_ROOT)/boot/zircon-sm-g960u.dtb
-	$(CP) bootloader/limine.conf $(ISO_ROOT)/boot/limine.conf
-	$(CP) $(KERNEL_DIR)/bootloader/limine-uefi-cd.bin $(ISO_ROOT)/boot/
-	$(CP) $(KERNEL_DIR)/bootloader/splash.png $(ISO_ROOT)/boot/
-	echo '#!/bin/sh' > $(ISO_ROOT)/init
-	echo 'echo "Zircon OS ARM64 v1.0.0"' >> $(ISO_ROOT)/init
-	echo 'echo "Booting on Samsung Galaxy S9 (SM-G960U)"' >> $(ISO_ROOT)/init
-	chmod +x $(ISO_ROOT)/init
-	xorriso -as mkisofs \
-		-no-emul-boot \
-		-boot-load-size 4 \
-		-boot-info-table \
-		--efi-boot boot/limine-uefi-cd.bin \
-		-efi-boot-part --efi-boot-image --protective-msdos-label \
-		$(ISO_ROOT) -o $(ZIRCON_ISO_ARM64)
-	@echo "Zircon ARM64 ISO built: $(ZIRCON_ISO_ARM64)"
-
 # ── Host tests (no kernel, no boot) ──
 # Phase 1 drives the framework itself (tests/run.sh); Phase 2 drives the
 # windowed host's WM encoder and event pump (tests/host/run.sh).  Both
@@ -281,6 +282,9 @@ iso-arm64: $(ZIRCON_KERNEL_ARM64) $(ZIRCON_DTB)
 zircapp-tests:
 	sh pkgs/core/base/zircapp/tests/run.sh
 	sh pkgs/core/base/zircapp/tests/host/run.sh
+
+zircapp-repo-check:
+	PYTHONDONTWRITEBYTECODE=1 python3 scripts/test_zircapp_repo.py
 
 .PHONY: initramfs zircapp-tests
 

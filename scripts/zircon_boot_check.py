@@ -83,14 +83,12 @@ KERNEL = [
     r"BAS: done status=0",
 ]
 
-# The compositor, the app store and the init process.  The store line is the
-# store's own output: the catalogue is loaded when the Home screen registers
-# the apps, so its absence means the store package is not in the image.
+# The compositor and the ZircApp registry.  These lines verify that the
+# framework-managed app modules were registered and the shell became ready.
 COMPOSITOR = [
     r"zircon: compositor launched \(PID \d+\)",
-    r"Zircon ready",
-    r"store: catalogue \d+ apps",
-    r"home: all apps registered \(\d+ apps\)",
+    r"zircon: registered \d+ ZircApp modules",
+    r"Zircon ready — \d+ app\(s\) registered",
 ]
 
 # The device.  The kernel picks the profile (kernel/device.h) and the

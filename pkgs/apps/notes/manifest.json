@@ -1,7 +1,7 @@
 {
   "name": "notes",
   "version": "1.0.0",
-  "description": "Zircon Notes app \u2014 a small notes list",
+  "description": "On-screen text editor with automatic local save",
   "license": "MIT",
   "type": "source",
   "category": "Apps",

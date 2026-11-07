@@ -1,6 +1,6 @@
 /* Zircon — Minimal Kernel Entry Point
  * Google-free mobile/desktop OS built on CodeOS kernel.
- * This is a minimal entry point for Zircon: no Qt desktop, no network stack,
+ * This is a minimal entry point for Zircon: no Qt desktop,
  * no Android containers, no X11 server. Just the Zircon app manager + compositor. */
 
 #include <stddef.h>
@@ -34,6 +34,7 @@
 #include "string.h"
 #include "version.h"
 #include "bootsplash.h"
+#include "zircon_logo.h"
 #include "fs.h"
 #include "vfs.h"
 #include "ext2.h"
@@ -50,6 +51,7 @@
 #include "display_bridge.h"
 #include "audio_mixer.h"
 #include "user_wm.h"
+#include "net.h"
 
 extern uint8_t _kernel_start[];
 extern uint8_t _kernel_end[];
@@ -57,6 +59,41 @@ extern uint8_t _kernel_end[];
 /* Boot mode flags — set from Limine command line */
 int kernel_recovery_mode = 0;
 int kernel_safe_mode = 0;
+
+static int cmdline_has_token(const char *cmdline, const char *token) {
+    if (!cmdline || !token)
+        return 0;
+    size_t token_len = strlen(token);
+    if (token_len == 0)
+        return 0;
+
+    for (const char *p = cmdline; *p;) {
+        while (*p == ' ' || *p == '\t')
+            p++;
+        const char *start = p;
+        while (*p && *p != ' ' && *p != '\t')
+            p++;
+        if ((size_t)(p - start) == token_len &&
+            !strncmp(start, token, token_len))
+            return 1;
+    }
+    return 0;
+}
+
+static void zircon_https_boot_test(void) {
+    char response[2048];
+    kprintf("HTTPSBOOT: requesting example.com over verified TLS\n");
+    int received = https_get("example.com", 443, "/", response,
+                             sizeof(response) - 1);
+    if (received < 0) {
+        kprintf("HTTPSBOOT: example.com TLS verification FAILED\n");
+        return;
+    }
+
+    response[received] = '\0';
+    kprintf("HTTPSBOOT: example.com TLS verification passed (%d response bytes)\n",
+            received);
+}
 
 typedef void (*ctor_fn_t)(void);
 extern ctor_fn_t __preinit_array_start[];
@@ -220,11 +257,8 @@ void kernel_main(uint32_t magic __attribute__((unused)),
      * may name a device to emulate ("zircon.device=tablet-1024x768").
      * Userspace asks for the answer with SYSCALL_GET_INFO command 4. */
     zircon_device_init(limine_get_cmdline(), fb_getwidth(), fb_getheight());
-    bootsplash_init();
     fb_clear();
-    fb_putchar('Z'); fb_putchar('i'); fb_putchar('r'); fb_putchar('c');
-    fb_putchar('o'); fb_putchar('n'); fb_putchar(' '); fb_putchar('O');
-    fb_putchar('S'); fb_putchar('\n');
+    zircon_logo_show();
 
     /* Parse cmdline for zircon.init= */
     const char *cmdline = limine_get_cmdline();
@@ -256,10 +290,8 @@ void kernel_main(uint32_t magic __attribute__((unused)),
     }
     pci_init();
     drivers_init();
-    /* The CMOS RTC.  Without it the clock starts at the epoch, and a program
-     * that asks for the time gets 0 -- which is what bas-selftest reported
-     * ("time > 0: false") before this was added. */
-    rtc_init();
+    if (net_init() < 0)
+        kprintf("zircon: network unavailable; HTTP and TLS requests will fail\n");
     gdt_tss_init();
 
     /* Run ctors */
@@ -315,6 +347,10 @@ void kernel_main(uint32_t magic __attribute__((unused)),
             sched_yield();
         if (!bas_probe_finished())
             kprintf("BAS: selftest timed out; continuing boot\n");
+    }
+
+    if (cmdline_has_token(limine_get_cmdline(), "httpsboot")) {
+        zircon_https_boot_test();
     }
 
     /* Initialize Zircon app manager */

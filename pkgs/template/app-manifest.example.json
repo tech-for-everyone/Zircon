@@ -1,0 +1,13 @@
+{
+  "format": "zircon-app-1",
+  "name": "example-app",
+  "version": "1.0.0",
+  "description": "A short, user-facing description of the app.",
+  "category": "Tools",
+  "runtime": "zircapp",
+  "abi": 1,
+  "install_path": "/apps/example-app",
+  "entrypoint": "bin/example-app",
+  "permissions": [],
+  "dependencies": []
+}

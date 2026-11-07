@@ -83,6 +83,9 @@ else
     # The legacy C/C++ panels package has been superseded by qt6/panels.
     # Keep other kernel-injected packages, but do not link a second GUI.
     KERN_PKG_DIRS = $(filter-out ../pkgs/core/panels/src/,$(sort $(dir $(wildcard ../pkgs/core/*/src/KERN))))
+    ifneq ($(wildcard ../../pkgs/core/openssl/src/KERN),)
+        KERN_PKG_DIRS += ../../pkgs/core/openssl/src/
+    endif
     PKG_DIRS = $(KERN_PKG_DIRS)
     ifneq ($(strip $(PKG_DIRS)),)
         PKG_SRC_C   = $(shell find $(PKG_DIRS) -name "*.c" -not -name "KERN" -not -name "*.d")
@@ -128,7 +131,7 @@ else
         -not -path "kernel/gui/*" \
         -not -name "initramfs_files.c" \
         -not -path "arch/arm64/*" -not -name "ahci.c" \
-        -not -path "*/examples/*" -not -name "x11_server.c" -not -name "x11_stubs.c" -not -name "zdm.c" -not -name "xora.c" -not -name "tcp.c" -not -name "pkg.c" -not -name "netstat.c" -not -name "ip.c" -not -name "net.c" -not -name "bootsplash.c" -not -name "https_certs.c" -not -name "ws.c" -not -name "shell.c" -not -name "shell_stubs.c" -not -name "pixelman_stubs.c" -not -name "clamav.c" -not -name "fb.cpp" -not -name "fb.c" -not -name "qt_desktop.cpp" \
+        -not -path "*/examples/*" -not -name "x11_server.c" -not -name "x11_stubs.c" -not -name "zdm.c" -not -name "xora.c" -not -name "net_stubs.c" -not -name "pkg.c" -not -name "netstat.c" -not -name "bootsplash.c" -not -name "ws.c" -not -name "shell.c" -not -name "shell_stubs.c" -not -name "pixelman_stubs.c" -not -name "clamav.c" -not -name "fb.cpp" -not -name "fb.c" -not -name "qt_desktop.cpp" \
         -not -path "lvgl/src/draw/sdl/*" \
         -not -path "lvgl/src/draw/stm32_dma2d/*" \
         -not -path "lvgl/src/draw/renesas/*" \
@@ -145,12 +148,8 @@ SRC_C   += $(PKG_SRC_C)
 
 SRC_C   += kernel/x11_server.c kernel/x11_stubs.c kernel/shell_stubs.c kernel/pixelman_stubs.c
 
-# kernel/net_stubs.c answers the socket/UDP layer's calls into the network
-# stack Zircon does not have.  It only became live when the SYSCALL MSRs were
-# turned on (kernel/kernel/main.c): until then the syscall dispatcher was dead
-# code that --gc-sections dropped, and with it every reference to these
-# symbols.  It is picked up by the `find` above like any other kernel source,
-# so it is NOT listed here -- doing that linked the object twice.
+# kernel/net_stubs.c is excluded from SRC_C when the real Zircon network
+# stack is enabled; retain it as the fallback for intentionally reduced builds.
 
     # kernel/qt_desktop.cpp is deliberately NOT here.
     #
@@ -203,7 +202,7 @@ endif
 # BSD-socket or hosted-libc dependency.  The static archives are produced by
 # the freestanding OpenSSL build (see pkgs/core/openssl/README); when they are
 # present we enable the OpenSSL https_get path and link libcrypto/libssl.
-OPENSSL_LIBDIR ?= ../pkgs/core/openssl/lib
+OPENSSL_LIBDIR ?= ../../pkgs/core/openssl/lib
 OPENSSL_LIBS := $(wildcard $(OPENSSL_LIBDIR)/libcrypto.a $(OPENSSL_LIBDIR)/libssl.a)
 ifneq ($(strip $(OPENSSL_LIBS)),)
     OPENSSL_CFLAGS = -DHTTPS_USE_OPENSSL=1
@@ -217,8 +216,8 @@ endif
 # package's freestanding sysroot (freestd) first, otherwise mbedtls's minimal
 # shims shadow it.  This include ordering applies ONLY to these two objects --
 # never to the rest of the kernel.
-../pkgs/core/openssl/src/ossl_shim.o ../pkgs/core/openssl/src/ossl_https.o: \
-        CFLAGS := -I../pkgs/core/openssl/freestd -I../pkgs/core/openssl/freestd/sys $(CFLAGS)
+../../pkgs/core/openssl/src/ossl_shim.o ../../pkgs/core/openssl/src/ossl_https.o: \
+        CFLAGS := -I../../pkgs/core/openssl/freestd -I../../pkgs/core/openssl/freestd/sys $(CFLAGS)
 
 USER_PROGS = init shell csl zircapp zircon-notify zircon-clock zircon-info apk-parser android-container android-apps code-music linux-runner crosvm-launcher ncvm ld-codeos terminal syscall_test openweb wineserver wine-runner linux-probe run-as dnslookup leveltest netbeam android-launcher android-clock android-calculator android-settings android-dialer android-music android-browser android-camera android-calendar android-keyboard chromium-launcher
 USER_ELF = $(addprefix userspace/,$(USER_PROGS))
@@ -458,7 +457,9 @@ arch/vectors.S: arch/genvectors.py
 	$(AS) -g -c -o $@ $<
 
 OBJ = $(OBJ_ALL) $(EMBED_OBJ)
-PHASE1_OBJ = $(OBJ_ALL)
+# The logo is linked into stage 1 because kernel_main renders it before
+# initramfs files are available.
+PHASE1_OBJ = $(OBJ_ALL) $(if $(filter x86_64,$(ARCH)),../build/zircon_logo_boot.o)
 
 ifdef STAGE1_TARGET
 $(STAGE1_TARGET): $(PHASE1_OBJ) $(RUST_LIB) $(RUST_HD_LIB) $(RUST_PR_LIB) $(LDSCRIPT)
@@ -479,6 +480,13 @@ kernel/embed_limine_conf.o: bootloader/limine.conf
 
 kernel/embed_splash.o: bootloader/splash.png
 	$(LD_BINARY) -r -b binary -o $@ $<
+
+../build/zircon_logo_boot.rgb565: userspace/icons/zircon_logo.png ../scripts/png_to_rgb565.py
+	mkdir -p ../build
+	python3 ../scripts/png_to_rgb565.py $< $@
+
+../build/zircon_logo_boot.o: ../build/zircon_logo_boot.rgb565
+	cd ../build && $(LD_BINARY) -r -b binary -o zircon_logo_boot.o zircon_logo_boot.rgb565
 endif
 
 # No Qt panels on the Zircon link.
@@ -839,6 +847,7 @@ run-sb-setup: codeos-1-kernel-signed.iso disk.img-legacy
 
 clean:
 	rm -f $(OBJ) $(DEPFILES) codeos-1-kernel.bin codeos-1-kernel-arm64.bin $(STAGE1_TARGET) kernel/embed_kernel.S *.ftech
+	rm -f ../build/zircon_logo_boot.rgb565 ../build/zircon_logo_boot.o
 	rm -f codeos-1-kernel-signed.iso bootloader/limine-uefi-cd-signed.bin
 ifneq ($(ARCH),arm64)
 	cd $(RUST_DIR) && cargo clean 2>/dev/null || true

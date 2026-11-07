@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-/* Trusted root CA store for mbedtls client certification.
+/* Trusted root CA store for TLS client certification.
  *
  * The embedded store is a curated subset (16 roots) of the Mozilla CA list,
  * covering the bulk of the modern web (Let's Encrypt, DigiCert, Google GTS,

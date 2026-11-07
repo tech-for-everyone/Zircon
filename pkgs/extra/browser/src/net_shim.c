@@ -1,20 +1,36 @@
 /* net_shim.c — freestanding network + math shims for the OpenWeb Rust lib.
  *
  * libow_http.a (ow_http.rs) references http_get/http_post/https_get/fs_read
- * and sched_sleep_ms.  Zircon on QEMU has no routed NIC for userspace yet, so
- * these report "network unavailable"; the browser still starts tabs and the
- * Rust renderer fills the C globals when a fetch succeeds (e.g. later wiring).
+ * and sched_sleep_ms. HTTP GET is forwarded through the bounded kernel
+ * network syscall; HTTPS verification stays in the kernel TLS backend.
  * Also supplies memcmp/fma that Rust codegen needs.
  */
 #include <stdint.h>
 #include <stddef.h>
+#include <zircon_abi.h>
 
-/* ── Network (declared in pkgs/core/panels/src/net.h) ── */
+static int net_http_get(const char *host, uint16_t port, const char *path,
+                        void *buf, uint16_t max_len, int use_tls) {
+#if defined(__x86_64__)
+    long result;
+    register uint64_t a4 __asm__("r10") = (uint64_t)(uintptr_t)buf;
+    register uint64_t a5 __asm__("r8") = max_len;
+    register uint64_t a6 __asm__("r9") = (uint64_t)use_tls;
+    __asm__ volatile("int $0x80"
+                     : "=a"(result)
+                     : "a"(SYSCALL_NET_HTTP_GET), "D"(host), "S"(port),
+                       "d"(path), "r"(a4), "r"(a5), "r"(a6)
+                     : "memory");
+    return (int)result;
+#else
+    (void)host; (void)port; (void)path; (void)buf; (void)max_len; (void)use_tls;
+    return -1;
+#endif
+}
 
 int http_get(const char *host, uint16_t port, const char *path,
              void *buf, uint16_t max_len) {
-    (void)host; (void)port; (void)path; (void)buf; (void)max_len;
-    return -1;
+    return net_http_get(host, port, path, buf, max_len, 0);
 }
 
 int http_post(const char *host, uint16_t port, const char *path,
@@ -27,8 +43,7 @@ int http_post(const char *host, uint16_t port, const char *path,
 
 int https_get(const char *host, uint16_t port, const char *path,
               void *buf, uint16_t max_len) {
-    (void)host; (void)port; (void)path; (void)buf; (void)max_len;
-    return -1;
+    return net_http_get(host, port, path, buf, max_len, 1);
 }
 
 int fs_read(void *buf, int len) {

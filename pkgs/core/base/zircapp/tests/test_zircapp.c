@@ -8,7 +8,7 @@
  * What is asserted:
  *   - register() installs the app and calls init()
  *   - find()/get()/count() index the registry
- *   - broadcast() reaches RUNNING apps and skips STOPPED ones
+ *   - broadcast() reaches RUNNING apps and skips BACKGROUND/STOPPED ones
  *   - run_all() ticks only RUNNING apps
  *   - launch() re-runs init() and returns the index
  *   - set_draw_fn() stores the callback on the app
@@ -17,6 +17,7 @@
  *     delivers TICK, and returns when the root app is STOPPED
  */
 #include "zircapp.h"
+#include "zircapp_module_v1.h"
 #include "zircon_abi.h"
 #include <stdio.h>
 #include <string.h>
@@ -32,9 +33,36 @@ static int checks = 0, fails = 0;
 
 static int home_init_calls, home_ticks, home_broadcasts;
 static int notes_init_calls, notes_broadcasts;
+static int module_init_calls, module_event_calls, module_stop_calls;
+static int render_calls, render_width, render_height;
+static uint32_t module_last_type;
+static int module_last_x;
 
 static void home_init(struct zircapp_app *app) { (void)app; home_init_calls++; }
 static void notes_init(struct zircapp_app *app) { (void)app; notes_init_calls++; }
+static void module_init(void) { module_init_calls++; }
+static void module_event(const zircapp_module_event_v1_t *event) {
+    module_event_calls++;
+    module_last_type = event->type;
+    module_last_x = event->x;
+}
+static void module_stop(void) { module_stop_calls++; }
+static void notes_render(struct zircapp_app *app, const zircapp_canvas_t *canvas) {
+    (void)app;
+    render_calls++;
+    render_width = canvas->width;
+    render_height = canvas->height;
+}
+
+static const zircapp_module_v1_t test_module = {
+    .abi_version = ZIRCAPP_MODULE_ABI_V1,
+    .struct_size = sizeof(zircapp_module_v1_t),
+    .name = "Rust Test",
+    .name_len = 9,
+    .init = module_init,
+    .event = module_event,
+    .stop = module_stop,
+};
 
 static void home_event(struct zircapp_app *app, const zircapp_event_t *ev) {
     if (ev->type == ZIRCAPP_EVENT_TICK) {
@@ -60,6 +88,7 @@ static zircapp_app_t home_app = {
 };
 static zircapp_app_t notes_app = {
     .name = "Notes", .init = notes_init, .event = notes_event,
+    .render = notes_render,
 };
 
 /* ── fake kernel ABI ── */
@@ -95,8 +124,11 @@ int main(void) {
 
     int idx = zircapp_register(&home_app);
     CHECK(idx == 0, "register() returns the app index (0)");
-    CHECK(home_init_calls == 1, "register() calls the app init() hook");
-    CHECK(home_app.state == ZIRCAPP_APP_RUNNING, "register() marks the app RUNNING");
+    CHECK(home_init_calls == 0, "register() defers initialization until launch");
+    CHECK(home_app.state == ZIRCAPP_APP_STOPPED, "register() leaves the app stopped");
+    CHECK(zircapp_activate("Home") == 0, "activate() launches the selected app");
+    CHECK(home_init_calls == 1 && home_app.state == ZIRCAPP_APP_RUNNING,
+          "activate() initializes and foregrounds the app");
 
     zircapp_register(&notes_app);
     CHECK(zircapp_count() == 2, "registry holds both apps");
@@ -104,18 +136,54 @@ int main(void) {
     CHECK(zircapp_find("Nope") == 0, "find() returns NULL for a missing name");
     CHECK(zircapp_get(1) == &notes_app, "get() indexes the registry");
     CHECK(zircapp_get(9) == 0, "get() rejects an out-of-range index");
+    CHECK(zircapp_register_module_v1(&test_module) == 2,
+          "v1 module registers through the shared native ABI");
+    CHECK(module_init_calls == 0, "module initialization is deferred until launch");
+    CHECK(zircapp_launch("Rust Test") == 2, "launch() starts the registered module");
+    CHECK(module_init_calls == 1, "v1 module init callback runs on launch");
+    zircapp_event_t module_touch = { .type = ZIRCAPP_EVENT_TOUCH_DOWN,
+        .touch_count = 1, .touch = {{ .x = 123, .y = 45 }} };
+    zircapp_broadcast(&module_touch);
+    CHECK(module_event_calls == 1 &&
+          module_last_type == ZIRCAPP_EVENT_TOUCH_DOWN &&
+          module_last_x == 123, "v1 module receives the stable event projection");
+    zircapp_get(2)->stop(zircapp_get(2));
+    zircapp_get(2)->state = ZIRCAPP_APP_STOPPED;
+    CHECK(module_stop_calls == 1, "v1 module stop callback is forwarded");
+    zircapp_module_v1_t wrong_abi = test_module;
+    wrong_abi.abi_version++;
+    CHECK(zircapp_register_module_v1(&wrong_abi) == -1,
+          "unsupported module ABI versions are rejected");
 
-    /* broadcast reaches RUNNING, skips STOPPED */
-    notes_app.state = ZIRCAPP_APP_STOPPED;
+    /* Background and stopped apps must not react to the foreground user's
+     * input; otherwise hidden apps can perform actions behind the screen. */
+    notes_app.state = ZIRCAPP_APP_BACKGROUND;
     zircapp_event_t ev;
     memset(&ev, 0, sizeof(ev));
     ev.type = ZIRCAPP_EVENT_KEY_DOWN;
     home_broadcasts = notes_broadcasts = 0;
     zircapp_broadcast(&ev);
     CHECK(home_broadcasts == 1, "broadcast() reaches a RUNNING app");
+    CHECK(notes_broadcasts == 0, "broadcast() skips a BACKGROUND app");
+    notes_app.state = ZIRCAPP_APP_STOPPED;
+    zircapp_broadcast(&ev);
     CHECK(notes_broadcasts == 0, "broadcast() skips a STOPPED app");
 
+    zircapp_activate("Notes");
+    int notes_init_count = notes_init_calls;
+    zircapp_activate("Notes");
+    CHECK(notes_init_calls == notes_init_count,
+          "activating the foreground app does not reset its state");
+    zircapp_canvas_t canvas = { .width = 320, .height = 480 };
+    zircapp_render(&notes_app, &canvas);
+    CHECK(render_calls == 1 && render_width == 320 && render_height == 480,
+          "active app render callback receives its canvas");
+    notes_app.state = ZIRCAPP_APP_BACKGROUND;
+    zircapp_render(&notes_app, &canvas);
+    CHECK(render_calls == 1, "background apps are not rendered");
+
     /* run_all ticks RUNNING only */
+    zircapp_activate("Home");
     home_ticks = notes_broadcasts = 0;
     zircapp_run_all();
     CHECK(home_ticks == 1, "run_all() ticks a RUNNING app");

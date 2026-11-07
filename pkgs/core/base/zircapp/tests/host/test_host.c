@@ -98,14 +98,22 @@ static zircapp_app_t kall_app = {
 
 /* One child is enough: the host's job is launch/back, not the fan-out. */
 static int home_init_calls;
+static int home_apps_registered;
 static void home_init(struct zircapp_app *app) {
     (void)app;
     home_init_calls++;
-    zircapp_register(&kall_app);
+    if (!home_apps_registered) {
+        zircapp_register(&kall_app);
+        home_apps_registered = 1;
+    }
 }
 zircapp_app_t home_app = {
     .name = "Home", .init = home_init, .event = probe_event,
 };
+
+void zircon_apps_register(void) {
+    zircapp_register(&kall_app);
+}
 
 /* ── helpers ── */
 
@@ -139,8 +147,9 @@ int main(void) {
 
     zircapp_init();
     zircapp_register(&home_app);
+    zircapp_launch("Home");
     CHECK(zircapp_count() == 2, "registry = Home + one child");
-    CHECK(home_init_calls == 1, "registering Home ran its init once");
+    CHECK(home_init_calls == 1, "launching Home ran its init once");
 
     /* ── WM command encodings (the bytes the kernel parses) ── */
     reset_state();
@@ -192,7 +201,7 @@ int main(void) {
     feed_mouse(3, 20, 60, 1);      /* cell 0 = Home */
     pump_events();
     CHECK(mode == MODE_APP && active_app == 0, "click on the Home cell launches index 0");
-    CHECK(touches == 2, "the press is broadcast to every registered app");
+    CHECK(touches == 1, "the press is delivered only to the foreground app");
 
     /* ── second cell -> Kall, and its init runs ── */
     kall_init_calls = 0;

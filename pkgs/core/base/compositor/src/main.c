@@ -1,11 +1,10 @@
 /* Zircon — the Better Android
  * Main entry point. Runs as a userspace service on CodeOS and Zircon.
  *
- * The compositor is a WM-protocol client (fd 3/4) that draws the full
- * ZircApp UI: Home grid and per-app screens (Clock, Calculator, Kall,
- * Notes, Terminal, Music, Settings, Gallery, SMS, Weather, Browser,
- * Camera, About).  It arms the kernel user-window bridge, opens one
- * window, and drives the frame loop with input from the kernel bridge. */
+ * The shell owns the Home grid, navigation and window protocol. Built-in
+ * ZircApp packages own app lifecycle; apps with a render callback paint into
+ * the compositor canvas. The shell keeps a compatibility renderer for apps
+ * that have not migrated yet. */
 
 #include <panels.h>
 #include <windows.h>
@@ -14,6 +13,7 @@
 #include <zircon_abi.h>
 #include <wm_protocol.h>
 #include <store.h>
+#include <moveon.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -25,6 +25,22 @@ static inline int sys_pwrite(int fd, const void *buf, int count) {
 }
 static inline int sys_read(int fd, void *buf, int count) {
     int ret; __asm__ volatile("int $0x80" : "=a"(ret) : "a"(5), "D"(fd), "S"(buf), "d"(count) : "memory"); return ret;
+}
+static inline int sys_open(const char *path, int flags) {
+    int ret; __asm__ volatile("int $0x80" : "=a"(ret) : "a"(4), "D"(path), "S"(flags) : "memory"); return ret;
+}
+static inline int sys_close(int fd) {
+    int ret; __asm__ volatile("int $0x80" : "=a"(ret) : "a"(13), "D"(fd) : "memory"); return ret;
+}
+typedef struct { int size; int is_dir; } app_stat_t;
+static inline int sys_stat(const char *path, app_stat_t *info) {
+    int ret; __asm__ volatile("int $0x80" : "=a"(ret) : "a"(38), "D"(path), "S"(info) : "memory"); return ret;
+}
+static inline int sys_mkdir(const char *path) {
+    int ret; __asm__ volatile("int $0x80" : "=a"(ret) : "a"(41), "D"(path) : "memory"); return ret;
+}
+static inline int sys_readdir(const char *path, char *names, int max_bytes) {
+    int ret; __asm__ volatile("int $0x80" : "=a"(ret) : "a"(45), "D"(path), "S"(names), "d"(max_bytes) : "memory"); return ret;
 }
 static inline int sys_wm_attach(void) {
     int ret; __asm__ volatile("int $0x80" : "=a"(ret) : "a"(SYSCALL_WM_ATTACH) : "memory"); return ret;
@@ -51,6 +67,9 @@ static inline int sys_wifi_enable(void) {
 }
 static inline int sys_wifi_disable(void) {
     int ret; __asm__ volatile("int $0x80" : "=a"(ret) : "a"(SYSCALL_WIFI_CONTROL), "D"(WIFI_CMD_DISABLE) : "memory"); return ret;
+}
+static inline int sys_wifi_status(void) {
+    int ret; __asm__ volatile("int $0x80" : "=a"(ret) : "a"(SYSCALL_WIFI_CONTROL), "D"(4) : "memory"); return ret;
 }
 static inline int sys_wifi_scan(void *out) {
     int ret; __asm__ volatile("int $0x80" : "=a"(ret) : "a"(SYSCALL_WIFI_CONTROL), "D"(WIFI_CMD_SCAN), "S"(out) : "memory"); return ret;
@@ -87,7 +106,7 @@ static inline int sys_airplane_get(void) {
 extern int usleep(unsigned int usec);
 
 /* ── Built-in app: Home Screen ── */
-extern zircapp_app_t home_app;
+extern void zircon_apps_register(void);
 
 /* Screen dimensions — the *logical* screen, set at runtime from the device
  * profile the kernel reports.  A 1080x2400 phone is a 360x800 logical
@@ -119,6 +138,7 @@ static const char *device_form_name(int form) {
  * tablet four, five or six.  It is a variable, not a constant, because the
  * device decides. */
 static int COLS = 2;
+static int theme_light;
 
 /* Catppuccin-ish palette, ARGB. */
 #define COL_BAR     0xFF1E1E2E
@@ -134,6 +154,23 @@ static int COLS = 2;
 #define COL_WARN    0xFFF9E2AF
 #define COL_ERR     0xFFF38BA8
 #define COL_PANEL   0xFF20203A
+
+static uint32_t theme_color(uint32_t color) {
+    if (!theme_light)
+        return color;
+    switch (color) {
+    case COL_BAR:     return 0xFFE6E9EF;
+    case COL_BG:      return 0xFFF4F5F8;
+    case COL_CELL:    return 0xFFFFFFFF;
+    case COL_CELL_HI: return 0xFFDCE4F2;
+    case COL_TEXT:    return 0xFF252A34;
+    case COL_DIM:     return 0xFF505866;
+    case COL_FAINT:   return 0xFF737C8A;
+    case COL_FOOT:    return 0xFFE1E4EA;
+    case COL_PANEL:   return 0xFFEAECF1;
+    default:          return color;
+    }
+}
 
 /* App UI mode */
 enum { MODE_HOME = 0, MODE_APP = 1 };
@@ -154,6 +191,19 @@ struct {
     /* Notes */
     char notes[384];
     int  notes_len;
+    int  notes_loaded;
+    int  notes_saved;
+    /* Files */
+    char files_path[256];
+    char files_names[64][32];
+    unsigned char files_dirs[64];
+    int  files_count;
+    int  files_scroll;
+    char files_preview_name[32];
+    char files_preview[512];
+    int  files_preview_len;
+    int  files_previewing;
+    char files_notice[48];
     /* Terminal */
     char term_lines[7][44];
     int  term_cnt;
@@ -164,6 +214,7 @@ struct {
     int  music_playing;
     /* Settings toggles */
     unsigned settings;
+    char settings_notice[48];
     /* Camera */
     int  shots;
     /* Gallery / SMS selections */
@@ -177,7 +228,13 @@ struct {
 #define SET_DND  0x8u
 #define SET_AIR  0x10u
 
-static void app_state_reset(void) { memset(&ast, 0, sizeof(ast)); ast.settings = SET_DARK; }
+static unsigned saved_settings = SET_DARK;
+
+static void app_state_reset(void) {
+    memset(&ast, 0, sizeof(ast));
+    ast.settings = saved_settings;
+    theme_light = !(saved_settings & SET_DARK);
+}
 
 /* Forward declarations for functions used before definition */
 static int hit_cell(int px, int py);
@@ -203,8 +260,11 @@ static void wm_create(int w, int h, const char *title) {
     wm_send(msg, p);
 }
 
+static uint32_t theme_color(uint32_t color);
+
 static void wm_fill(int x, int y, int w, int h, uint32_t color) {
     if (win_handle < 0) return;
+    color = theme_color(color);
     uint8_t msg[14];
     msg[0] = WM_FILL_RECT; msg[1] = (uint8_t)win_handle;
     msg[2] = (uint8_t)(x & 0xFF); msg[3] = (uint8_t)((x >> 8) & 0xFF);
@@ -220,6 +280,7 @@ static void wm_fill(int x, int y, int w, int h, uint32_t color) {
 
 static void wm_text(int x, int y, uint32_t color, const char *s) {
     if (win_handle < 0 || !s) return;
+    color = theme_color(color);
     int slen = (int)strlen(s); if (slen > 200) slen = 200;
     uint8_t msg[212]; int p = 0;
     msg[p++] = WM_DRAW_STR; msg[p++] = (uint8_t)win_handle;
@@ -386,21 +447,407 @@ static void draw_kall(void) {
 
 /* ── Notes: one buffer, wrapped, Backspace deletes ── */
 #define NOTE_COLS 44
-#define NOTE_ROWS 16
 
-static void note_input(int ch) { if (ch == 8) { if (ast.notes_len > 0) ast.notes[--ast.notes_len] = 0; return; } if (ch == '\r') ch = '\n'; if ((ch == '\n' || (ch >= 32 && ch < 127)) && ast.notes_len < (int)sizeof(ast.notes) - 1) { ast.notes[ast.notes_len++] = (char)ch; ast.notes[ast.notes_len] = 0; } }
+#define NOTES_PATH "/root/root/home/Notes.txt"
+#define NOTE_KEY_H 32
+
+static void notes_load(void) {
+    ast.notes_loaded = 1;
+    ast.notes_len = 0;
+    int fd = sys_open(NOTES_PATH, 0);
+    if (fd < 0) {
+        ast.notes_saved = 1;
+        return;
+    }
+    int n = sys_read(fd, ast.notes, sizeof(ast.notes) - 1);
+    int close_result = sys_close(fd);
+    if (n < 0 || close_result < 0) {
+        ast.notes[0] = 0;
+        ast.notes_saved = 0;
+        return;
+    }
+    ast.notes_len = n;
+    ast.notes[n] = 0;
+    ast.notes_saved = 1;
+}
+
+static void notes_save(void) {
+    int fd = sys_open(NOTES_PATH, 1 | 0x40 | 0x200);
+    if (fd < 0) {
+        ast.notes_saved = 0;
+        return;
+    }
+    int n = sys_pwrite(fd, ast.notes, ast.notes_len);
+    int close_result = sys_close(fd);
+    ast.notes_saved = n == ast.notes_len && close_result == 0;
+}
+
+static void note_input(int ch) {
+    if (ch == 8) {
+        if (ast.notes_len > 0) ast.notes[--ast.notes_len] = 0;
+    } else {
+        if (ch == '\r') ch = '\n';
+        if ((ch == '\n' || (ch >= 32 && ch < 127)) &&
+            ast.notes_len < (int)sizeof(ast.notes) - 1) {
+            ast.notes[ast.notes_len++] = (char)ch;
+            ast.notes[ast.notes_len] = 0;
+        }
+    }
+    notes_save();
+}
+
+static int notes_keyboard_y(void) {
+    return SCREEN_H - FOOTER_H - 4 * (NOTE_KEY_H + 4) - 8;
+}
+
+static int notes_touch_key(int x, int y) {
+    int top = notes_keyboard_y();
+    int row = (y - top) / (NOTE_KEY_H + 4);
+    if (x < 0 || x >= SCREEN_W || y < top || row < 0 || row >= 4)
+        return 0;
+    static const char *rows[] = { "qwertyuiop", "asdfghjkl", "zxcvbnm" };
+    if (row == 0) {
+        int col = x * 10 / SCREEN_W;
+        return col < 10 ? rows[0][col] : 0;
+    }
+    if (row == 1) {
+        int width = SCREEN_W / 9;
+        int start = (SCREEN_W - width * 9) / 2;
+        int col = (x - start) / width;
+        return x >= start && col < 9 ? rows[1][col] : 0;
+    }
+    if (row == 2) {
+        if (x >= SCREEN_W - SCREEN_W / 5)
+            return 8;
+        int width = SCREEN_W / 8;
+        int start = (SCREEN_W - width * 7) / 2;
+        int col = (x - start) / width;
+        return x >= start && col < 7 ? rows[2][col] : 0;
+    }
+    if (x < SCREEN_W / 5)
+        return '\n';
+    if (x >= SCREEN_W - SCREEN_W / 5)
+        return -1;
+    return ' ';
+}
+
+static void draw_note_key(int x, int y, int w, const char *label) {
+    wm_fill(x + 1, y, w - 2, NOTE_KEY_H, COL_CELL);
+    wm_text(x + (w - (int)strlen(label) * 8) / 2,
+            y + (NOTE_KEY_H - 16) / 2, COL_TEXT, label);
+}
+
 static void draw_notes(void) {
-    int x = 16, y = HEADER_H + 18; int col = 0, row = 0; char line[NOTE_COLS + 1];
+    int x = 12, y = HEADER_H + 16; int col = 0, row = 0; char line[NOTE_COLS + 1];
+    int keyboard_y = notes_keyboard_y();
     for (int i = 0; i <= ast.notes_len; i++) {
         char c = (i < ast.notes_len) ? ast.notes[i] : 0;
-        if (c == '\n' || (i == ast.notes_len && col > 0)) { line[col] = 0; wm_text(x, y + row * 20, COL_TEXT, line); row++; col = 0; if (c == 0) break; continue; }
+        if (c == '\n' || (i == ast.notes_len && col > 0)) {
+            line[col] = 0;
+            if (y + row * 18 < keyboard_y - 22) wm_text(x, y + row * 18, COL_TEXT, line);
+            row++; col = 0; if (c == 0) break; continue;
+        }
         if (i == ast.notes_len) break;
-        if (col >= NOTE_COLS) { line[col] = 0; wm_text(x, y + row * 20, COL_TEXT, line); row++; col = 0; }
+        if (col >= NOTE_COLS) {
+            line[col] = 0;
+            if (y + row * 18 < keyboard_y - 22) wm_text(x, y + row * 18, COL_TEXT, line);
+            row++; col = 0;
+        }
         line[col++] = c;
     }
-    if (col == 0 && row == 0) wm_text(x, y, COL_FAINT, "Empty note - just type.");
-    wm_fill(x + col * 8, y + row * 20, 8, 16, COL_ACCENT);
-    wm_text(x, SCREEN_H - FOOTER_H - 30, COL_FAINT, "keys type - Backspace deletes - 384 bytes");
+    if (col == 0 && row == 0) wm_text(x, y, COL_FAINT, "Write a note. It saves as you type.");
+    if (y + row * 18 < keyboard_y - 22)
+        wm_fill(x + col * 8, y + row * 18, 2, 16, COL_ACCENT);
+    wm_text(12, keyboard_y - 20, ast.notes_saved ? COL_OK : COL_ERR,
+            ast.notes_saved ? "Saved on this device" : "Save failed - check storage");
+
+    int ky = keyboard_y;
+    int kw = SCREEN_W / 10;
+    for (int i = 0; i < 10; i++) {
+        char label[2] = { "qwertyuiop"[i], 0 };
+        draw_note_key(i * kw, ky, kw, label);
+    }
+    ky += NOTE_KEY_H + 4;
+    kw = SCREEN_W / 9;
+    int start = (SCREEN_W - kw * 9) / 2;
+    for (int i = 0; i < 9; i++) {
+        char label[2] = { "asdfghjkl"[i], 0 };
+        draw_note_key(start + i * kw, ky, kw, label);
+    }
+    ky += NOTE_KEY_H + 4;
+    kw = SCREEN_W / 8;
+    start = (SCREEN_W - kw * 7) / 2;
+    for (int i = 0; i < 7; i++) {
+        char label[2] = { "zxcvbnm"[i], 0 };
+        draw_note_key(start + i * kw, ky, kw, label);
+    }
+    draw_note_key(SCREEN_W - SCREEN_W / 5, ky, SCREEN_W / 5, "DEL");
+    ky += NOTE_KEY_H + 4;
+    int side = SCREEN_W / 5;
+    draw_note_key(0, ky, side, "Enter");
+    draw_note_key(side, ky, SCREEN_W - side * 2, "Space");
+    draw_note_key(SCREEN_W - side, ky, side, "Save");
+}
+
+/* ── Files: browse the writable user home and preview text files ── */
+#define FILES_HOME "/root/root/home"
+#define FILES_ROW_H 36
+
+static int files_list_y(void) { return HEADER_H + 48; }
+static int files_controls_y(void) { return SCREEN_H - FOOTER_H - 42; }
+
+static int files_join(char *out, const char *parent, const char *name) {
+    int n = snprintf(out, 256, "%s%s%s", parent,
+                     parent[0] && parent[strlen(parent) - 1] == '/' ? "" : "/",
+                     name);
+    return n >= 0 && n < 256 ? 0 : -1;
+}
+
+static void files_refresh(void) {
+    char packed[4096];
+    ast.files_count = 0;
+    int bytes = sys_readdir(ast.files_path, packed, sizeof(packed));
+    if (bytes < 0 || bytes > (int)sizeof(packed)) {
+        snprintf(ast.files_notice, sizeof(ast.files_notice), "Cannot read this folder");
+        return;
+    }
+
+    for (int offset = 0; offset < bytes && ast.files_count < 64;) {
+        int left = bytes - offset;
+        int length = 0;
+        while (length < left && packed[offset + length])
+            length++;
+        if (length == left) {
+            snprintf(ast.files_notice, sizeof(ast.files_notice), "Invalid folder listing");
+            ast.files_count = 0;
+            return;
+        }
+        const char *name = packed + offset;
+        offset += length + 1;
+        if (length == 0 || (length == 1 && name[0] == '.') ||
+            (length == 2 && name[0] == '.' && name[1] == '.') ||
+            length >= (int)sizeof(ast.files_names[0]))
+            continue;
+
+        char path[256];
+        app_stat_t info;
+        if (files_join(path, ast.files_path, name) < 0 || sys_stat(path, &info) < 0)
+            continue;
+        int index = ast.files_count++;
+        memcpy(ast.files_names[index], name, length);
+        ast.files_names[index][length] = 0;
+        ast.files_dirs[index] = info.is_dir != 0;
+    }
+
+    for (int i = 0; i < ast.files_count; i++) {
+        for (int j = i + 1; j < ast.files_count; j++) {
+            int swap = ast.files_dirs[j] > ast.files_dirs[i] ||
+                (ast.files_dirs[j] == ast.files_dirs[i] &&
+                 strcmp(ast.files_names[j], ast.files_names[i]) < 0);
+            if (swap) {
+                char name[32];
+                memcpy(name, ast.files_names[i], sizeof(name));
+                memcpy(ast.files_names[i], ast.files_names[j], sizeof(name));
+                memcpy(ast.files_names[j], name, sizeof(name));
+                unsigned char is_dir = ast.files_dirs[i];
+                ast.files_dirs[i] = ast.files_dirs[j];
+                ast.files_dirs[j] = is_dir;
+            }
+        }
+    }
+    if (ast.files_scroll >= ast.files_count)
+        ast.files_scroll = ast.files_count > 0 ? ast.files_count - 1 : 0;
+}
+
+static void files_load_home(void) {
+    snprintf(ast.files_path, sizeof(ast.files_path), "%s", FILES_HOME);
+    app_stat_t info;
+    if (sys_stat(ast.files_path, &info) < 0 || !info.is_dir) {
+        snprintf(ast.files_notice, sizeof(ast.files_notice), "User home is unavailable");
+        ast.files_count = 0;
+        return;
+    }
+    files_refresh();
+}
+
+static void files_open_item(int index) {
+    if (index < 0 || index >= ast.files_count)
+        return;
+    char path[256];
+    if (files_join(path, ast.files_path, ast.files_names[index]) < 0)
+        return;
+    if (ast.files_dirs[index]) {
+        snprintf(ast.files_path, sizeof(ast.files_path), "%s", path);
+        ast.files_scroll = 0;
+        ast.files_notice[0] = 0;
+        files_refresh();
+        return;
+    }
+
+    int fd = sys_open(path, 0);
+    if (fd < 0) {
+        snprintf(ast.files_notice, sizeof(ast.files_notice), "Cannot open this file");
+        return;
+    }
+    int n = sys_read(fd, ast.files_preview, sizeof(ast.files_preview) - 1);
+    int close_result = sys_close(fd);
+    if (n < 0 || close_result < 0) {
+        snprintf(ast.files_notice, sizeof(ast.files_notice), "Cannot read this file");
+        return;
+    }
+    ast.files_preview_len = n;
+    ast.files_preview[n] = 0;
+    snprintf(ast.files_preview_name, sizeof(ast.files_preview_name), "%s",
+             ast.files_names[index]);
+    ast.files_previewing = 1;
+    ast.files_notice[0] = 0;
+}
+
+static void files_go_up(void) {
+    if (!strcmp(ast.files_path, FILES_HOME))
+        return;
+    char *slash = 0;
+    for (char *p = ast.files_path; *p; p++)
+        if (*p == '/') slash = p;
+    if (!slash)
+        return;
+    *slash = 0;
+    if (strlen(ast.files_path) < strlen(FILES_HOME) ||
+        strncmp(ast.files_path, FILES_HOME, strlen(FILES_HOME))) {
+        snprintf(ast.files_path, sizeof(ast.files_path), "%s", FILES_HOME);
+    }
+    ast.files_scroll = 0;
+    ast.files_notice[0] = 0;
+    files_refresh();
+}
+
+static void files_new_folder(void) {
+    for (int i = 1; i <= 999; i++) {
+        char name[24], path[256];
+        snprintf(name, sizeof(name), "Folder %d", i);
+        if (files_join(path, ast.files_path, name) < 0)
+            break;
+        app_stat_t info;
+        if (sys_stat(path, &info) == 0)
+            continue;
+        if (sys_mkdir(path) < 0) {
+            snprintf(ast.files_notice, sizeof(ast.files_notice), "Could not create folder");
+            return;
+        }
+        snprintf(ast.files_notice, sizeof(ast.files_notice), "Created %s", name);
+        files_refresh();
+        return;
+    }
+    snprintf(ast.files_notice, sizeof(ast.files_notice), "No free folder names");
+}
+
+static void files_button(int x, int y) {
+    if (y < files_controls_y())
+        return;
+    int button = x * 4 / SCREEN_W;
+    if (ast.files_previewing) {
+        if (button == 0) {
+            ast.files_previewing = 0;
+            ast.files_notice[0] = 0;
+        }
+        return;
+    }
+    switch (button) {
+    case 0: files_go_up(); break;
+    case 1: files_new_folder(); break;
+    case 2:
+        if (ast.files_scroll > 0) ast.files_scroll -= 8;
+        files_refresh();
+        break;
+    case 3:
+        if (ast.files_scroll + 8 < ast.files_count) ast.files_scroll += 8;
+        files_refresh();
+        break;
+    }
+}
+
+static void files_text_line(int x, int y, const char *text, int max_chars) {
+    char line[48];
+    int length = (int)strlen(text);
+    if (length > max_chars) length = max_chars;
+    if (length >= (int)sizeof(line)) length = (int)sizeof(line) - 1;
+    for (int i = 0; i < length; i++) {
+        unsigned char ch = (unsigned char)text[i];
+        line[i] = ch >= 32 && ch < 127 ? (char)ch : ' ';
+    }
+    line[length] = 0;
+    wm_text(x, y, COL_TEXT, line);
+}
+
+static void draw_files(void) {
+    int list_y = files_list_y();
+    int controls_y = files_controls_y();
+    char path_label[48];
+    snprintf(path_label, sizeof(path_label), "%s", ast.files_path);
+    if (strlen(path_label) > 40)
+        memmove(path_label, path_label + strlen(path_label) - 40, 41);
+    wm_text(12, HEADER_H + 12, COL_DIM, path_label);
+
+    if (ast.files_previewing) {
+        wm_text(12, list_y, COL_ACCENT, ast.files_preview_name);
+        wm_text(12, list_y + 22, COL_FAINT, "Text preview - first 512 bytes");
+        int row = 0, col = 0;
+        char line[41];
+        for (int i = 0; i < ast.files_preview_len && row < 12; i++) {
+            unsigned char ch = (unsigned char)ast.files_preview[i];
+            if (ch == '\n' || col == 40) {
+                line[col] = 0;
+                files_text_line(12, list_y + 48 + row * 22, line, 40);
+                row++; col = 0;
+                if (ch == '\n') continue;
+            }
+            if (ch == '\r' || ch == '\t') ch = ' ';
+            line[col++] = ch >= 32 && ch < 127 ? (char)ch : '.';
+        }
+        if (row < 12 && col > 0) {
+            line[col] = 0;
+            files_text_line(12, list_y + 48 + row * 22, line, 40);
+        }
+    } else {
+        int visible = (controls_y - list_y) / FILES_ROW_H;
+        for (int row = 0; row < visible; row++) {
+            int index = ast.files_scroll + row;
+            if (index >= ast.files_count)
+                break;
+            int y = list_y + row * FILES_ROW_H;
+            wm_fill(8, y, SCREEN_W - 16, FILES_ROW_H - 2, COL_CELL);
+            wm_text(18, y + 9, ast.files_dirs[index] ? COL_ACCENT : COL_DIM,
+                    ast.files_dirs[index] ? "[D]" : "[F]");
+            wm_text(54, y + 9, COL_TEXT, ast.files_names[index]);
+        }
+        if (!ast.files_count)
+            wm_text(12, list_y + 10, COL_FAINT, "This folder is empty");
+    }
+
+    if (ast.files_notice[0])
+        wm_text(12, controls_y - 20, COL_WARN, ast.files_notice);
+    int width = SCREEN_W / 4;
+    static const char *labels[] = { "Up", "New folder", "Prev", "Next" };
+    for (int i = 0; i < 4; i++) {
+        const char *label = ast.files_previewing && i == 0 ? "Back" : labels[i];
+        wm_fill(i * width + 2, controls_y, width - 4, 36, COL_CELL_HI);
+        wm_text(i * width + (width - (int)strlen(label) * 8) / 2,
+                controls_y + 10, COL_TEXT, label);
+    }
+}
+
+static void draw_moveon(void) {
+    text_c(HEADER_H + 30, COL_TEXT, "Move your files to CodeOS");
+    wm_text(20, HEADER_H + 72, COL_DIM, "1. Prepare a safe copy of your home folder.");
+    wm_text(20, HEADER_H + 98, COL_DIM, "2. Copy it to a computer or shared storage.");
+    wm_text(20, HEADER_H + 124, COL_DIM, "3. Build and verify a .moveon bundle.");
+    wm_text(20, HEADER_H + 150, COL_FAINT, "Up to 500 entries; each file <= 64 KiB.");
+    wm_text(20, HEADER_H + 174, COL_FAINT, "The original files are never changed.");
+    int button_y = SCREEN_H / 2 - 25;
+    wm_fill(20, button_y, SCREEN_W - 40, 50, COL_ACCENT);
+    text_c(button_y + 17, 0xFF11111B, "Prepare export");
+    files_text_line(12, button_y + 62, moveon_status(), 40);
+    wm_text(20, button_y + 94, COL_FAINT, "Host tool: Zircon/scripts/move_on.py");
 }
 
 /* ── Terminal: echo + a few builtins, 7-line scrollback ── */
@@ -450,27 +897,78 @@ static const char *kSetNames[5] = { "Wi-Fi", "Bluetooth", "Dark Mode", "Do Not D
 static const unsigned kSetBits[5] = { SET_WIFI, SET_BT, SET_DARK, SET_DND, SET_AIR };
 static int settings_row_at(int y) { int ry = HEADER_H + 14; for (int i = 0; i < 5; i++) { if (y >= ry && y < ry + 52) return i; ry += 60; } return -1; }
 static void settings_toggle(int row) {
-    ast.settings ^= kSetBits[row];
-    int on = (ast.settings & kSetBits[row]) != 0;
+    int on;
+    if (row == 0) on = sys_wifi_status() <= 0;
+    else if (row == 3) on = !sys_dnd_get();
+    else if (row == 4) on = !sys_airplane_get();
+    else if (row == 1) {
+        snprintf(ast.settings_notice, sizeof(ast.settings_notice),
+                 "Bluetooth radio control is not implemented");
+        return;
+    } else on = !(ast.settings & kSetBits[row]);
+    ast.settings &= ~kSetBits[row];
+    ast.settings |= on ? kSetBits[row] : 0;
     switch (row) {
-    case 0: on ? sys_wifi_enable() : sys_wifi_disable(); break;
-    case 1: on ? sys_bt_enable() : sys_bt_disable(); break;
-    case 2: /* Dark mode is visual only */ break;
-    case 3: sys_dnd_set(on); break;
-    case 4: sys_airplane_set(on); if (on) { sys_wifi_disable(); sys_bt_disable(); } break;
+    case 0:
+        if (on && sys_airplane_get()) {
+            ast.settings_notice[0] = 0;
+            snprintf(ast.settings_notice, sizeof(ast.settings_notice), "Turn off Airplane Mode first");
+            return;
+        }
+        if ((on ? sys_wifi_enable() : sys_wifi_disable()) != 1) {
+            ast.settings ^= SET_WIFI;
+            snprintf(ast.settings_notice, sizeof(ast.settings_notice), "Wi-Fi adapter unavailable");
+        } else {
+            ast.settings_notice[0] = 0;
+        }
+        break;
+    case 2:
+        theme_light = !on;
+        ast.settings_notice[0] = 0;
+        break;
+    case 3:
+        if (sys_dnd_set(on) < 0) {
+            ast.settings ^= SET_DND;
+            snprintf(ast.settings_notice, sizeof(ast.settings_notice), "Could not change Do Not Disturb");
+        } else {
+            ast.settings_notice[0] = 0;
+        }
+        break;
+    case 4:
+        if (sys_airplane_set(on) < 0) {
+            ast.settings ^= SET_AIR;
+            snprintf(ast.settings_notice, sizeof(ast.settings_notice), "Could not change Airplane Mode");
+        } else {
+            if (on) {
+                sys_wifi_disable();
+                ast.settings &= ~SET_WIFI;
+            }
+            ast.settings_notice[0] = 0;
+        }
+        break;
     }
+    saved_settings = ast.settings;
 }
 static void draw_settings(void) {
     int ry = HEADER_H + 14; for (int i = 0; i < 5; i++) {
         int on = (ast.settings & kSetBits[i]) != 0;
-        /* Sync with kernel state for DND and Airplane */
+        if (i == 0) on = sys_wifi_status() > 0;
+        else if (i == 1) on = sys_bt_enable() > 0;
         if (i == 3) on = sys_dnd_get();
         else if (i == 4) on = sys_airplane_get();
-        /* WiFi and BT use local state (toggled by user) */
         wm_fill(12, ry, SCREEN_W - 24, 52, COL_CELL); wm_text(28, ry + 18, COL_TEXT, kSetNames[i]);
-        int px = SCREEN_W - 12 - 28 - 44; wm_fill(px, ry + 14, 44, 24, on ? COL_ACCENT : COL_PANEL);
-        wm_fill(on ? px + 22 : px + 2, ry + 16, 20, 20, 0xFF11111B); ry += 60;
+        if (i == 1) {
+            const char *status = on ? "detected" : "not available";
+            wm_text(SCREEN_W - 28 - (int)strlen(status) * 8, ry + 18, COL_FAINT, status);
+        } else {
+            int px = SCREEN_W - 12 - 28 - 44;
+            wm_fill(px, ry + 14, 44, 24, on ? COL_ACCENT : COL_PANEL);
+            wm_fill(on ? px + 22 : px + 2, ry + 16, 20, 20, 0xFF11111B);
+        }
+        ry += 60;
     }
+    if (ast.settings_notice[0])
+        wm_text(16, ry + 8, COL_WARN, ast.settings_notice);
 }
 
 /* ── Gallery: 2x3 tiles, click selects ── */
@@ -553,13 +1051,96 @@ static void draw_about(void) {
 /* ── Zircon Store: the app catalogue ── */
 #define STORE_ROW_H   44
 #define STORE_X       16
-#define STORE_TOP     (HEADER_H + 46)
+#define STORE_TOP     (HEADER_H + 106)
 #define STORE_BADGE_W 108
 
 static int store_scroll;   /* first catalogue row on screen */
+static int store_category_sel;
+static int store_detail_idx = -1;
+static int store_search_active;
+static char store_search[32];
+
+static int store_keyboard_y(void) {
+    return SCREEN_H - FOOTER_H - 126;
+}
+
+static void store_search_input(int key) {
+    size_t length = strlen(store_search);
+    if (key == 8 || key == 127) {
+        if (length) store_search[length - 1] = 0;
+    } else if (key == 13) {
+        store_search_active = 0;
+    } else if (key >= 32 && key < 127 && length + 1 < sizeof(store_search)) {
+        store_search[length] = (char)key;
+        store_search[length + 1] = 0;
+    }
+    store_scroll = 0;
+}
+
+static void draw_store_keyboard(void) {
+    static const char *const rows[] = { "qwertyuiop", "asdfghjkl", "zxcvbnm" };
+    const int row_y = store_keyboard_y();
+    const int gap = 3;
+    for (int row = 0; row < 3; row++) {
+        int count = (int)strlen(rows[row]);
+        int key_w = (SCREEN_W - STORE_X * 2 - gap * (count - 1)) / count;
+        int row_w = count * key_w + (count - 1) * gap;
+        int left = (SCREEN_W - row_w) / 2;
+        int y = row_y + row * 32;
+        for (int col = 0; col < count; col++) {
+            int x = left + col * (key_w + gap);
+            char label[2] = { rows[row][col], 0 };
+            wm_fill(x, y, key_w, 28, COL_CELL);
+            wm_text(x + (key_w - 8) / 2, y + 7, COL_TEXT, label);
+        }
+    }
+    int action_y = row_y + 96;
+    int action_w = (SCREEN_W - STORE_X * 2 - 2 * gap) / 3;
+    static const char *const actions[] = { "Space", "Backspace", "Done" };
+    for (int i = 0; i < 3; i++) {
+        int x = STORE_X + i * (action_w + gap);
+        wm_fill(x, action_y, action_w, 28, COL_PANEL);
+        wm_text(x + 6, action_y + 7, i == 2 ? COL_OK : COL_TEXT, actions[i]);
+    }
+}
+
+static void store_search_key_at(int x, int y) {
+    static const char *const rows[] = { "qwertyuiop", "asdfghjkl", "zxcvbnm" };
+    int relative_y = y - store_keyboard_y();
+    int row = relative_y / 32;
+    if (relative_y < 0 || relative_y >= 124) return;
+    if (row < 3) {
+        int count = (int)strlen(rows[row]);
+        int gap = 3;
+        int key_w = (SCREEN_W - STORE_X * 2 - gap * (count - 1)) / count;
+        int row_w = count * key_w + (count - 1) * gap;
+        int left = (SCREEN_W - row_w) / 2;
+        int col = (x - left) / (key_w + gap);
+        if (x >= left && col >= 0 && col < count &&
+            x < left + row_w && (x - left) % (key_w + gap) < key_w)
+            store_search_input(rows[row][col]);
+        return;
+    }
+    int gap = 3;
+    int action_w = (SCREEN_W - STORE_X * 2 - 2 * gap) / 3;
+    int relative_x = x - STORE_X;
+    int action = relative_x / (action_w + gap);
+    if (relative_x < 0 || action < 0 || action >= 3 ||
+        relative_x % (action_w + gap) >= action_w)
+        return;
+    if (action == 0) store_search_input(' ');
+    else if (action == 1) store_search_input(8);
+    else store_search_input(13);
+}
+
+static const char *store_category_name(void) {
+    const char *category = store_category(store_category_sel);
+    return category ? category : "All";
+}
 
 static int store_rows_visible(void) {
-    int space = SCREEN_H - FOOTER_H - STORE_TOP - 34;
+    int reserved = store_search_active ? 126 : 34;
+    int space = SCREEN_H - FOOTER_H - STORE_TOP - reserved;
     if (space < STORE_ROW_H) return 1;
     return space / STORE_ROW_H;
 }
@@ -577,18 +1158,57 @@ static void store_text_clipped(int x, int y, uint32_t col, const char *s, int ma
 }
 
 static void draw_store(void) {
-    int total = store_count();
+    int total = store_filtered_count(store_search, store_category_name());
     int vis = store_rows_visible();
     if (store_scroll > total - vis) store_scroll = total - vis;
     if (store_scroll < 0) store_scroll = 0;
 
     char buf[96];
-    snprintf(buf, sizeof(buf), "%d apps in the catalogue", total);
-    wm_text(STORE_X, HEADER_H + 14, COL_DIM, buf);
-    wm_text(STORE_X, HEADER_H + 30, COL_FAINT, "tap a row to open it, tap the badge to remove or install");
+    if (store_detail_idx >= 0) {
+        const store_item_t *it = store_item(store_detail_idx);
+        if (!it) {
+            store_detail_idx = -1;
+            return;
+        }
+        int installed = store_is_installed(it->name);
+        wm_text(STORE_X, HEADER_H + 20, COL_TEXT, it->name);
+        snprintf(buf, sizeof(buf), "v%s  %s  %u KB", it->version, it->category, it->size_kb);
+        wm_text(STORE_X, HEADER_H + 46, COL_FAINT, buf);
+        store_text_clipped(STORE_X, HEADER_H + 88, COL_DIM, it->desc,
+                           (SCREEN_W - STORE_X * 2) / 8);
+        wm_text(STORE_X, HEADER_H + 132, COL_FAINT, "Requested capabilities:");
+        store_text_clipped(STORE_X, HEADER_H + 152, COL_ACCENT, it->permissions, 48);
+        wm_text(STORE_X, HEADER_H + 172, COL_FAINT, "Disclosure only; runtime grants are not enforced yet.");
+        wm_text(STORE_X, HEADER_H + 194, COL_FAINT,
+                installed ? "Available in the Home app grid." : "Built into this Zircon image.");
+        int button_y = SCREEN_H - FOOTER_H - 52;
+        int half = SCREEN_W / 2;
+        wm_fill(STORE_X, button_y, half - STORE_X - 4, 38, COL_PANEL);
+        wm_text(STORE_X + 10, button_y + 12, COL_OK, installed ? "Open app" : "Add to Home");
+        wm_fill(half + 4, button_y, SCREEN_W - half - STORE_X - 4, 38, COL_PANEL);
+        wm_text(half + 14, button_y + 12, installed ? COL_ACCENT : COL_DIM,
+                installed ? "Remove" : "Back");
+        return;
+    }
+
+    snprintf(buf, sizeof(buf), "%d matching apps", total);
+    wm_text(STORE_X, HEADER_H + 6, COL_DIM, buf);
+    int search_y = HEADER_H + 24;
+    wm_fill(STORE_X, search_y, SCREEN_W - STORE_X * 2, 26,
+            store_search_active ? COL_CELL_HI : COL_CELL);
+    snprintf(buf, sizeof(buf), "Search: %s%s", store_search[0] ? store_search : "tap and type",
+             store_search_active ? "_" : "");
+    store_text_clipped(STORE_X + 8, search_y + 7, COL_TEXT, buf,
+                       (SCREEN_W - STORE_X * 2 - 16) / 8);
+    int category_y = HEADER_H + 58;
+    const char *category = store_category_name();
+    snprintf(buf, sizeof(buf), "Category: %s  (tap to change)", category);
+    store_text_clipped(STORE_X, category_y, COL_ACCENT, buf,
+                       (SCREEN_W - STORE_X * 2) / 8);
+    wm_text(SCREEN_W - 128, category_y, COL_FAINT, "Enter to search");
 
     for (int r = 0; r < vis; r++) {
-        int idx = store_scroll + r;
+        int idx = store_filtered_index(store_scroll + r, store_search, category);
         const store_item_t *it = store_item(idx);
         if (!it) break;
         int y = STORE_TOP + r * STORE_ROW_H;
@@ -600,8 +1220,8 @@ static void draw_store(void) {
         wm_text(STORE_X + 12, y + 24, COL_FAINT, buf);
         store_text_clipped(STORE_X + 190, y + 24, COL_DIM, it->desc,
                            (SCREEN_W - STORE_X * 2 - STORE_BADGE_W - 210) / 8);
-        /* The badge is the install control: the row itself opens the app. */
-        const char *badge = installed ? "INSTALLED" : "AVAILABLE";
+        /* The row opens details; Home actions are shown there. */
+        const char *badge = installed ? "ON HOME" : "DETAILS";
         uint32_t badge_col = installed ? COL_OK : COL_ACCENT;
         int badge_x = SCREEN_W - STORE_X - STORE_BADGE_W;
         wm_fill(badge_x, y, STORE_BADGE_W - 8, STORE_ROW_H - 6, COL_PANEL);
@@ -611,7 +1231,11 @@ static void draw_store(void) {
     if (total > vis) {
         snprintf(buf, sizeof(buf), "%d of %d - tap below to scroll", store_scroll + vis, total);
         wm_text(STORE_X, SCREEN_H - FOOTER_H - 22, COL_FAINT, buf);
+    } else if (total == 0) {
+        wm_text(STORE_X, STORE_TOP + 12, COL_FAINT, "No apps match this search.");
     }
+    if (store_search_active)
+        draw_store_keyboard();
 }
 
 /* Which catalogue row is at this y?  -1 when the tap is past the list. */
@@ -620,47 +1244,74 @@ static int store_row_at(int y) {
     int r = (y - STORE_TOP) / STORE_ROW_H;
     int vis = store_rows_visible();
     if (r >= vis) return -1;
-    int idx = store_scroll + r;
-    return idx < store_count() ? idx : -1;
+    return store_filtered_index(store_scroll + r, store_search, store_category_name());
 }
 
 /* The badge is the right-hand strip of the row. */
-static int store_badge_hit(int x, int y) {
-    int idx = store_row_at(y);
-    if (idx < 0) return 0;
-    (void)idx;
-    return x >= SCREEN_W - STORE_X - STORE_BADGE_W;
-}
-
 static void store_tap(int x, int y) {
+    if (store_detail_idx >= 0) {
+        int button_y = SCREEN_H - FOOTER_H - 52;
+        if (y < button_y || y >= button_y + 38) return;
+        const store_item_t *selected = store_item(store_detail_idx);
+        if (!selected) {
+            store_detail_idx = -1;
+            return;
+        }
+        if (x < SCREEN_W / 2) {
+            if (!store_is_installed(selected->name)) {
+                store_set_installed(selected->name, 1);
+                printf("store: '%s' added to Home\n", selected->name);
+                return;
+            }
+            for (int i = 0; i < zircapp_count(); i++) {
+                zircapp_app_t *app = zircapp_get(i);
+                if (app && !strcmp(app->name, selected->name)) {
+                    do_launch(i);
+                    return;
+                }
+            }
+            printf("store: '%s' is not in the app registry\n", selected->name);
+            return;
+        }
+        if (store_is_installed(selected->name)) {
+            store_set_installed(selected->name, 0);
+            printf("store: '%s' removed from Home\n", selected->name);
+        } else {
+            store_detail_idx = -1;
+        }
+        return;
+    }
+
+    if (store_search_active && y >= store_keyboard_y()) {
+        store_search_key_at(x, y);
+        return;
+    }
+    if (y >= HEADER_H + 24 && y < HEADER_H + 52) {
+        store_search_active = 1;
+        return;
+    }
+    if (y >= HEADER_H + 52 && y < STORE_TOP) {
+        store_category_sel++;
+        if (store_category_sel >= store_category_count()) store_category_sel = 0;
+        store_scroll = 0;
+        return;
+    }
     int idx = store_row_at(y);
     if (idx < 0) {
         /* A tap past the last row scrolls the list, if there is more. */
         int vis = store_rows_visible();
-        if (store_scroll + vis < store_count()) { store_scroll += vis; printf("store: scrolled to %d\n", store_scroll); }
+        int total = store_filtered_count(store_search, store_category_name());
+        if (store_scroll + vis < total) {
+            store_scroll += vis;
+            printf("store: scrolled to %d\n", store_scroll);
+        }
         return;
     }
     const store_item_t *it = store_item(idx);
     if (!it) return;
-    if (store_badge_hit(x, y)) {
-        int want = store_is_installed(it->name) ? 0 : 1;
-        store_set_installed(it->name, want);
-        printf("store: '%s' %s\n", it->name, want ? "installed" : "removed");
-        return;
-    }
-    if (!store_is_installed(it->name)) {
-        store_set_installed(it->name, 1);
-        printf("store: '%s' installed\n", it->name);
-        return;
-    }
-    /* Installed: open it, the same way the Home grid does. */
-    int ridx = -1;
-    for (int i = 0; i < zircapp_count(); i++) {
-        zircapp_app_t *a = zircapp_get(i);
-        if (a && !strcmp(a->name, it->name)) { ridx = i; break; }
-    }
-    if (ridx >= 0) do_launch(ridx);
-    else printf("store: '%s' is not in the app registry\n", it->name);
+    (void)x;
+    store_detail_idx = idx;
+    store_search_active = 0;
 }
 
 /* ── Layout + painting ── */
@@ -701,7 +1352,7 @@ static void draw_home(void) {
         if (a && store_is_installed(a->name)) shown++;
     }
     wm_fill(0, 0, SCREEN_W, HEADER_H, COL_BAR);
-    wm_text(12, (HEADER_H - 16) / 2, COL_TEXT, "ZircApp");
+    wm_text(12, (HEADER_H - 16) / 2, COL_TEXT, "Zircon");
     snprintf(buf, sizeof(buf), "%d apps", shown);
     wm_text(SCREEN_W - 12 - (int)strlen(buf) * 8, (HEADER_H - 16) / 2, COL_ACCENT, buf);
     wm_fill(0, HEADER_H, SCREEN_W, SCREEN_H - HEADER_H - FOOTER_H, COL_BG);
@@ -716,28 +1367,43 @@ static void draw_home(void) {
     }
     draw_status(); wm_flush();
 }
+static void module_fill_rect(int x, int y, int w, int h, uint32_t color) {
+    wm_fill(x, y, w, h, color);
+}
+static void module_draw_text(int x, int y, uint32_t color, const char *text) {
+    wm_text(x, y, color, text);
+}
 static void draw_app_screen(void) {
     zircapp_app_t *a = zircapp_get(active_app_idx);
     if (!a) { mode = MODE_HOME; active_app_idx = -1; draw_home(); return; }
     wm_fill(0, 0, SCREEN_W, HEADER_H, COL_BAR);
-    wm_text(12, (HEADER_H - 16) / 2, COL_ACCENT, "< Home");
+    wm_text(12, (HEADER_H - 16) / 2, COL_ACCENT,
+            !strcmp(a->name, "Store") && store_detail_idx >= 0 ? "< Store" : "< Home");
     wm_text(96, (HEADER_H - 16) / 2, COL_TEXT, a->name);
     wm_fill(0, HEADER_H, SCREEN_W, SCREEN_H - HEADER_H - FOOTER_H, COL_BG);
     const char *n = a->name;
-    if (!strcmp(n, "Clock"))            draw_clock();
+    if (a->render) {
+        zircapp_canvas_t canvas = {
+            .x = 0,
+            .y = HEADER_H,
+            .width = SCREEN_W,
+            .height = SCREEN_H - HEADER_H - FOOTER_H,
+            .fill_rect = module_fill_rect,
+            .draw_text = module_draw_text,
+        };
+        zircapp_render(a, &canvas);
+    }
     else if (!strcmp(n, "Calculator"))  draw_calc();
     else if (!strcmp(n, "Kall"))        draw_kall();
     else if (!strcmp(n, "Notes"))       draw_notes();
     else if (!strcmp(n, "Terminal"))    draw_terminal();
     else if (!strcmp(n, "Music"))       draw_music();
     else if (!strcmp(n, "Settings"))    draw_settings();
-    else if (!strcmp(n, "Gallery"))     draw_gallery();
     else if (!strcmp(n, "SMS"))         draw_sms();
-    else if (!strcmp(n, "Weather"))     draw_weather();
-    else if (!strcmp(n, "Browser"))     draw_browser_app();
-    else if (!strcmp(n, "Camera"))      draw_camera();
-    else if (!strcmp(n, "About"))       draw_about();
+    else if (!strcmp(n, "Browser"))    draw_browser_app();
     else if (!strcmp(n, "Store"))       draw_store();
+    else if (!strcmp(n, "Files"))       draw_files();
+    else if (!strcmp(n, "Move On"))     draw_moveon();
     else {
         wm_text(16, HEADER_H + 22, COL_TEXT, "ZircApp app running under Zircon");
         wm_text(16, HEADER_H + 46, COL_DIM, "touch events broadcast to all apps");
@@ -753,6 +1419,25 @@ static void app_click(int x, int y) {
     if (!strcmp(n, "Calculator")) { char k = calc_key_at(x, y); if (k) { calc_input(k); draw_app_screen(); } }
     else if (!strcmp(n, "Kall")) { char k = dial_key_at(x, y); if (k) { dial_input(k); draw_app_screen(); } else if (dial_call_at(x, y)) { if (ast.calling) ast.calling = 0; else if (ast.dial[0]) ast.calling = 1; draw_app_screen(); } }
     else if (!strcmp(n, "Settings")) { int row = settings_row_at(y); if (row >= 0) { settings_toggle(row); draw_app_screen(); } }
+    else if (!strcmp(n, "Notes")) {
+        int key = notes_touch_key(x, y);
+        if (key == -1) notes_save();
+        else if (key) note_input(key);
+        draw_app_screen();
+    }
+    else if (!strcmp(n, "Files")) {
+        if (y >= files_controls_y()) {
+            files_button(x, y);
+        } else if (ast.files_previewing) {
+            ast.files_previewing = 0;
+        } else if (y >= files_list_y()) {
+            int row = (y - files_list_y()) / FILES_ROW_H;
+            files_open_item(ast.files_scroll + row);
+        } else {
+            files_refresh();
+        }
+        draw_app_screen();
+    }
     else if (!strcmp(n, "Music")) { if (music_button_at(x, y)) { music_toggle(); draw_app_screen(); } }
     else if (!strcmp(n, "Camera")) { ast.shots++; draw_app_screen(); }
     else if (!strcmp(n, "Gallery")) { int t = gallery_tile_at(x, y); if (t >= 0) { ast.tile_sel = t; draw_app_screen(); } }
@@ -760,11 +1445,20 @@ static void app_click(int x, int y) {
     else if (!strcmp(n, "Store")) { store_tap(x, y); draw_app_screen(); }
 }
 
-static void goto_home(void) { mode = MODE_HOME; active_app_idx = -1; draw_home(); }
+static void goto_home(void) {
+    zircapp_background_all();
+    mode = MODE_HOME;
+    active_app_idx = -1;
+    draw_home();
+}
 static void do_launch(int idx) {
     zircapp_app_t *a = zircapp_get(idx); if (!a) return;
+    if (zircapp_activate(a->name) < 0)
+        return;
     active_app_idx = idx; mode = MODE_APP; app_state_reset();
-    zircapp_launch(a->name); printf("zircapp: launch '%s' (index %d)\n", a->name, idx);
+    printf("zircapp: launch '%s' (index %d)\n", a->name, idx);
+    if (!strcmp(a->name, "Notes")) notes_load();
+    else if (!strcmp(a->name, "Files")) files_load_home();
     draw_app_screen();
 }
 
@@ -775,8 +1469,22 @@ static void on_mouse(int x, int y, int pressed) {
         ev.touch_count = 1; ev.touch[0].id = 0; ev.touch[0].x = x; ev.touch[0].y = y; ev.touch[0].pressure = 1;
         zircapp_broadcast(&ev);
         if (mode == MODE_HOME) { int idx = hit_cell(x, y); if (idx >= 0) do_launch(idx); }
-        else if (x < 96 && y < HEADER_H) goto_home();
-        else app_click(x, y);
+        else if (x < 96 && y < HEADER_H) {
+            if (mode == MODE_APP && !strcmp(active_name(), "Store") &&
+                store_detail_idx >= 0) {
+                store_detail_idx = -1;
+                draw_app_screen();
+            } else {
+                goto_home();
+            }
+        }
+        else {
+            zircapp_app_t *app = zircapp_get(active_app_idx);
+            if (app && app->render)
+                draw_app_screen();
+            else
+                app_click(x, y);
+        }
     } else {
         zircapp_event_t ev; memset(&ev, 0, sizeof(ev));
         ev.type = ZIRCAPP_EVENT_TOUCH_UP; ev.win_id = win_handle; zircapp_broadcast(&ev);
@@ -785,8 +1493,28 @@ static void on_mouse(int x, int y, int pressed) {
 static void on_key(int key) {
     zircapp_event_t ev; memset(&ev, 0, sizeof(ev));
     ev.type = ZIRCAPP_EVENT_KEY_DOWN; ev.key = key; ev.win_id = win_handle; zircapp_broadcast(&ev);
-    if (key == 27) { if (mode == MODE_APP) { mode = MODE_HOME; active_app_idx = -1; draw_home(); } else have_window = 0; }
-    else if (mode == MODE_APP) app_key(key);
+    if (key == 27) {
+        if (mode == MODE_APP && !strcmp(active_name(), "Store") &&
+            store_search_active) {
+            store_search_active = 0;
+            draw_app_screen();
+        } else if (mode == MODE_APP && !strcmp(active_name(), "Store") &&
+                   store_detail_idx >= 0) {
+            store_detail_idx = -1;
+            draw_app_screen();
+        } else if (mode == MODE_APP) {
+            goto_home();
+        } else {
+            have_window = 0;
+        }
+    }
+    else if (mode == MODE_APP) {
+        zircapp_app_t *app = zircapp_get(active_app_idx);
+        if (app && app->render)
+            draw_app_screen();
+        else
+            app_key(key);
+    }
 }
 
 static int hit_cell(int px, int py) {
@@ -803,6 +1531,10 @@ static void app_key(int key) {
     else if (!strcmp(n, "Notes")) { note_input(key < 256 ? key : 0); draw_app_screen(); }
     else if (!strcmp(n, "Kall")) { dial_input(key < 256 ? key : 0); draw_app_screen(); }
     else if (!strcmp(n, "Terminal")) { term_input(key < 256 ? key : 0); draw_app_screen(); }
+    else if (!strcmp(n, "Store") && store_search_active) {
+        store_search_input(key);
+        draw_app_screen();
+    }
 }
 
 static void handle_event(const uint8_t *p) {
@@ -837,14 +1569,14 @@ static void pump_events(void) {
 }
 
 static int run_windowed(void) {
-    wm_create(SCREEN_W, SCREEN_H, "ZircApp");
+    wm_create(SCREEN_W, SCREEN_H, "Zircon");
     for (int waited = 0; waited < 2000 && !have_window; waited += 10) { pump_events(); if (!have_window) usleep(10000); }
     if (!have_window) return 0;
     mode = MODE_HOME; active_app_idx = -1; draw_home();
     int tick_acc = 0;
     while (have_window) {
         pump_events(); usleep(16000); tick_acc += 16;
-        if (tick_acc >= 500) { tick_acc = 0; zircapp_event_t ev; memset(&ev, 0, sizeof(ev)); ev.type = ZIRCAPP_EVENT_TICK; zircapp_broadcast(&ev); if (mode == MODE_APP) { const char *n = active_name(); if (!strcmp(n, "Clock") || !strcmp(n, "Music")) { if (!strcmp(n, "Music")) music_tick(); draw_app_screen(); } } }
+        if (tick_acc >= 500) { tick_acc = 0; zircapp_event_t ev; memset(&ev, 0, sizeof(ev)); ev.type = ZIRCAPP_EVENT_TICK; zircapp_broadcast(&ev); if (mode == MODE_APP) { if (!strcmp(active_name(), "Music")) music_tick(); draw_app_screen(); } }
     }
     wm_close(); return 1;
 }
@@ -852,7 +1584,7 @@ static int run_windowed(void) {
 /* Console session (no compositor, or --selftest) */
 static const char *kSubApps[] = { "Kall", "SMS", "Settings", "Camera", "Clock", "Calculator", "Music", "Gallery", "Browser" };
 static int run_console(int selftest) {
-    printf("zircapp: console mode\n"); for (int i = 0; i < zircapp_count(); i++) { zircapp_app_t *a = zircapp_get(i); if (a) printf("zircapp: app[%d] = '%s'\n", i, a->name); }
+    printf("zircon: shell console mode\n"); for (int i = 0; i < zircapp_count(); i++) { zircapp_app_t *a = zircapp_get(i); if (a) printf("zircapp: app[%d] = '%s'\n", i, a->name); }
     if (!selftest) return 1;
     int launched = 0;
     for (unsigned i = 0; i < sizeof(kSubApps) / sizeof(kSubApps[0]); i++) { if (zircapp_launch(kSubApps[i]) >= 0) launched++; else printf("zircapp: launch failed '%s'\n", kSubApps[i]); }
@@ -861,8 +1593,10 @@ static int run_console(int selftest) {
     memset(&ev, 0, sizeof(ev)); ev.type = ZIRCAPP_EVENT_KEY_DOWN; ev.key = 'a'; zircapp_broadcast(&ev);
     memset(&ev, 0, sizeof(ev)); ev.type = ZIRCAPP_EVENT_TICK; zircapp_broadcast(&ev);
     printf("zircapp: selftest apps=%d launched=%d\n", zircapp_count(), launched);
-    int reg_before = zircapp_count(); zircapp_launch("Home"); zircapp_launch("Home");
-    int reg_after = zircapp_count(); printf("zircapp: relaunch Home registry %d -> %d\n", reg_before, reg_after);
+    int notes_idx = zircapp_activate("Notes");
+    int same_notes_idx = zircapp_activate("Notes");
+    printf("zircapp: resume Notes index %d -> %d\n",
+           notes_idx, same_notes_idx);
 
     /* The app store: the catalogue and the installed set are the store
      * package's own state, and the Home grid reads them, so the selftest
@@ -877,7 +1611,9 @@ static int run_console(int selftest) {
            catalogue, removed, hidden, installed, shown);
     int store_ok = catalogue > 0 && removed == 1 && hidden == 0 && installed == 1 && shown == 1;
 
-    return launched == (int)(sizeof(kSubApps) / sizeof(kSubApps[0])) && reg_after == reg_before && store_ok;
+    return launched == (int)(sizeof(kSubApps) / sizeof(kSubApps[0])) &&
+           notes_idx >= 0 && same_notes_idx == notes_idx &&
+           store_ok;
 }
 
 /* ── Main ── */
@@ -932,13 +1668,11 @@ int main(int argc, char **argv) {
     gui_desktop_init(SCREEN_W, SCREEN_H);
     gui_window_init(); zircapp_init();
 
-    zircapp_phone_init(); zircapp_register(&home_app);
+    zircapp_phone_init(); zircon_apps_register();
 
     printf("Zircon ready — %d app(s) registered\n", zircapp_count());
     printf("Zircon %s mode: %dx%d logical screen, %d columns, %dx scale\n",
            device_form_name(DEVICE_FORM), SCREEN_W, SCREEN_H, COLS, DEVICE_SCALE);
-
-    zircapp_launch("Home");
 
     if (sys_wm_attach() >= 0 && run_windowed()) return 0;
     printf("zircapp: WM bridge unavailable, running headless\n");

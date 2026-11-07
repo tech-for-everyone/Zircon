@@ -1,7 +1,7 @@
 {
   "name": "compositor",
   "version": "1.0.0",
-  "description": "Zircon compositor (zircond): the app tree, input pump and frame loop",
+  "description": "Zircon shell/compositor (zircond): home UI, navigation, input pump and frame loop",
   "license": "MIT",
   "type": "source",
   "category": "System",

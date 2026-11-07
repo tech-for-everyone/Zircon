@@ -18,6 +18,7 @@ out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 
 cp "$pkg/include/zircapp.h"                       "$out/"
+cp "$pkg/include/zircapp_module_v1.h"             "$out/"
 cp "$pkg/src/zircapp.c"                           "$out/framework.c"
 cp "$root/pkgs/core/zircapp/src/zircapp.c"        "$out/host.c"
 cp "$root/kernel/userspace/include/wm_protocol.h" "$out/"

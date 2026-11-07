@@ -1,7 +1,7 @@
 {
   "name": "settings",
   "version": "1.0.0",
-  "description": "Zircon Settings app",
+  "description": "Control available network, privacy, and appearance settings",
   "license": "MIT",
   "type": "source",
   "category": "Apps",

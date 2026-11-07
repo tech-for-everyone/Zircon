@@ -37,12 +37,14 @@
 #define STORE_VER_MAX   12
 #define STORE_DESC_MAX  56
 #define STORE_CAT_MAX   16
+#define STORE_PERMS_MAX 64
 
 typedef struct {
     const char *name;      /* must match the zircapp registry name */
     const char *version;
     const char *desc;
     const char *category;
+    const char *permissions;
     unsigned    size_kb;
 } store_item_t;
 
@@ -50,6 +52,10 @@ typedef struct {
 int                 store_count(void);
 const store_item_t *store_item(int idx);
 int                 store_index_of(const char *name);
+int                 store_category_count(void);
+const char         *store_category(int idx);
+int                 store_filtered_count(const char *query, const char *category);
+int                 store_filtered_index(int position, const char *query, const char *category);
 
 /* Installed set: 1 = shown on the Home grid, 0 = removed by the user. */
 int store_is_installed(const char *name);

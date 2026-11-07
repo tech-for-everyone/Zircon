@@ -23,6 +23,31 @@ static const forecast_t forecast[] = {
 
 static int day;
 
+static void weather_render(struct zircapp_app *app, const zircapp_canvas_t *canvas) {
+    (void)app;
+    if (!canvas || !canvas->fill_rect || !canvas->draw_text)
+        return;
+
+    const forecast_t *today = &forecast[day];
+    int card_w = canvas->width - 24;
+    if (card_w < 1)
+        return;
+
+    canvas->fill_rect(canvas->x + 12, canvas->y + 16,
+                      card_w, 132, 0xFF24243A);
+    canvas->draw_text(canvas->x + 24, canvas->y + 30, 0xFF89B4FA,
+                      "Forecast");
+    canvas->draw_text(canvas->x + 24, canvas->y + 58, 0xFFCDD6F4,
+                      today->day);
+
+    char line[48];
+    snprintf(line, sizeof(line), "%s  %d C / %d C",
+             today->sky, today->high_c, today->low_c);
+    canvas->draw_text(canvas->x + 24, canvas->y + 84, 0xFFCDD6F4, line);
+    canvas->draw_text(canvas->x + 24, canvas->y + 116, 0xFFA6ADC8,
+                      "Tap upper or lower half to change day");
+}
+
 static void weather_init(struct zircapp_app *app) {
     (void)app;
     app->win_id = gui_window_create(0, 0, zircapp_phone_get_width(),
@@ -53,4 +78,5 @@ zircapp_app_t weather_app = {
     .stop = weather_stop,
     .state = ZIRCAPP_APP_STOPPED,
     .win_id = -1,
+    .render = weather_render,
 };

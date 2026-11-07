@@ -24,6 +24,16 @@
 /* Draw callback type: called by the framework to paint a rect. */
 typedef void (*zircapp_draw_fn)(int x, int y, int w, int h, uint32_t color);
 
+typedef struct {
+    int x, y, width, height;
+    void (*fill_rect)(int x, int y, int w, int h, uint32_t color);
+    void (*draw_text)(int x, int y, uint32_t color, const char *text);
+} zircapp_canvas_t;
+
+struct zircapp_app;
+typedef void (*zircapp_render_fn)(struct zircapp_app *app,
+                                  const zircapp_canvas_t *canvas);
+
 /* ── App event types ── */
 typedef enum {
     ZIRCAPP_EVENT_NONE = 0,
@@ -131,17 +141,21 @@ typedef struct zircapp_app {
     int win_id;
     void *userdata;
     zircapp_draw_fn draw;
+    zircapp_render_fn render;
 } zircapp_app_t;
 
 /* ── App registry API ── */
 
 void zircapp_init(void);
 int  zircapp_register(zircapp_app_t *app);
+int  zircapp_activate(const char *name);
+void zircapp_background_all(void);
 int  zircapp_count(void);
 zircapp_app_t *zircapp_get(int idx);
 zircapp_app_t *zircapp_find(const char *name);
 void zircapp_broadcast(const zircapp_event_t *ev);
 void zircapp_run_all(void);
+void zircapp_render(zircapp_app_t *app, const zircapp_canvas_t *canvas);
 
 /* Launch a native C app by name — returns its index or -1 */
 int  zircapp_launch(const char *name);

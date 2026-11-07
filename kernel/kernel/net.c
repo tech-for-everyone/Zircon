@@ -67,6 +67,14 @@ static uint64_t dhcp_lease_expires;   /* ms timestamp of lease expiry (0 = no le
 static uint32_t dhcp_lease_seconds;
 
 enum { TCP_FIN_SENT = 11 }; /* legacy single-socket marker; other states via tcp.h */
+enum { TCP_SOCK_CLOSED, TCP_SOCK_SYN_SENT, TCP_SOCK_ESTAB };
+typedef struct {
+    int state;
+    uint32_t dst_ip;
+    uint16_t src_port, dst_port;
+    uint32_t seq, ack;
+    int rx_len;
+} tcp_sock_t;
 
 static inline uint16_t bswap16(uint16_t x) { return __builtin_bswap16(x); }
 static inline uint32_t bswap32(uint32_t x) { return __builtin_bswap32(x); }
@@ -819,10 +827,28 @@ static int __attribute__((unused)) dns_send_and_wait(const uint8_t *query, int q
      * ring — whichever thread drained first consumed the reply, so hostname
      * resolution would silently time out under traffic. */
     int fd = udp_socket_create();
-    if (fd < 0) return -1;
-    if (udp_connect(fd, server_ip, DNS_PORT) < 0) { udp_socket_close(fd); return -1; }
-    if (udp_send(fd, query, qlen) < 0) { udp_socket_close(fd); return -1; }
+    if (fd < 0) {
+        kprintf("DNS: no UDP socket available\n");
+        return -1;
+    }
+    if (udp_connect(fd, server_ip, DNS_PORT) < 0) {
+        kprintf("DNS: cannot connect UDP socket to resolver\n");
+        udp_socket_close(fd);
+        return -1;
+    }
+    if (udp_send(fd, query, qlen) < 0) {
+        char server[16];
+        ip_to_str(server_ip, server);
+        kprintf("DNS: UDP send to %s failed\n", server);
+        udp_socket_close(fd);
+        return -1;
+    }
     int rlen = udp_recv_timeout(fd, resp_out, resp_max, 0, 0, 800);
+    if (rlen < (int)sizeof(dns_header_t)) {
+        char server[16];
+        ip_to_str(server_ip, server);
+        kprintf("DNS: no UDP response from %s\n", server);
+    }
     udp_socket_close(fd);
     return rlen;
 }
@@ -1476,6 +1502,29 @@ static int http_filter_feed(struct http_filter *f, const uint8_t *seg, int n,
     return total;
 }
 
+static int http_target_valid(const char *host, const char *path) {
+    if (!host || !path || path[0] != '/')
+        return 0;
+
+    size_t host_len = 0;
+    while (host[host_len]) {
+        unsigned char c = (unsigned char)host[host_len++];
+        if (host_len > 253 ||
+            !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+              (c >= '0' && c <= '9') || c == '.' || c == '-'))
+            return 0;
+    }
+    if (host_len == 0)
+        return 0;
+
+    for (size_t i = 0; path[i]; i++) {
+        unsigned char c = (unsigned char)path[i];
+        if (i >= 768 || c < 0x20 || c == 0x7f)
+            return 0;
+    }
+    return 1;
+}
+
 /* One shared HTTP exchange path for GET and POST: build the request, open the
  * TCP connection, send it, then drain the response through the de-chunker.
  * The caller handles policy (ad-blocking) and picks the method/body. */
@@ -1483,7 +1532,13 @@ static int http_exchange(const char *host, uint16_t port,
                          const char *method, const char *path,
                          const void *body, uint16_t body_len,
                          void *buf, uint16_t max_len, http_progress_cb cb) {
-    if (!net_up) return -1;
+    if (!net_up)
+        return -1;
+    if (port == 0 || !buf || max_len == 0 || !http_target_valid(host, path) ||
+        (body_len > 0 && !body)) {
+        kprintf("http: invalid request target or buffer\n");
+        return -1;
+    }
 
     uint32_t ip;
     if (dns_resolve(host, &ip) < 0) return -1;
@@ -1491,7 +1546,7 @@ static int http_exchange(const char *host, uint16_t port,
     int fd = tcp_connect(ip, port);
     if (fd < 0) return -1;
 
-    char req[1024];
+    char req[1280];
     int pos = 0;
     const char *parts[] = {method, " ", path, " HTTP/1.1\r\nHost: ", host,
                            "\r\nUser-Agent: codeos-kernel/1.0\r\n",
@@ -1548,6 +1603,10 @@ static int http_exchange(const char *host, uint16_t port,
 
 int http_get_with_progress(const char *host, uint16_t port, const char *path, void *buf, uint16_t max_len, http_progress_cb cb) {
     if (!net_up) return -1;
+    if (port == 0 || !buf || max_len == 0 || !http_target_valid(host, path)) {
+        kprintf("http: invalid request target or buffer\n");
+        return -1;
+    }
 
     if (adblock_is_enabled() && adblock_check_host(host)) {
         adblock_record_http_block();
@@ -1564,6 +1623,11 @@ int http_get(const char *host, uint16_t port, const char *path, void *buf, uint1
 
 int http_post(const char *host, uint16_t port, const char *path, const void *body, uint16_t body_len, void *buf, uint16_t max_len) {
     if (!net_up) return -1;
+    if (port == 0 || !buf || max_len == 0 || !http_target_valid(host, path) ||
+        (body_len > 0 && !body)) {
+        kprintf("http: invalid request target or buffer\n");
+        return -1;
+    }
 
     if (adblock_is_enabled() && adblock_check_host(host)) {
         adblock_record_http_block();
@@ -1707,6 +1771,10 @@ int icmp_ping(uint32_t ip, int timeout_ms) {
 void net_set_ip(uint32_t ip) { our_ip = ip; ip_set_addr(ip); }
 void net_set_gateway(uint32_t ip) { gateway_ip = ip; ip_set_gateway(ip); }
 void net_set_dns(uint32_t ip) { dns_ip = ip; dns_set_server(ip); }
+uint32_t net_get_ip(void) { return our_ip; }
+uint32_t net_get_gateway(void) { return gateway_ip; }
+uint32_t net_get_dns(void) { return dns_ip; }
+void net_get_mac(uint8_t *mac) { if (mac) memcpy(mac, our_mac, 6); }
 
 int net_ready(void) {
     return net_up;
@@ -1993,6 +2061,68 @@ void tcp_sock_close(tcp_sock_t *s) {
     s->state = TCP_SOCK_CLOSED;
 }
 
+#if HTTPS_USE_OPENSSL
+
+int https_get(const char *host, uint16_t port, const char *path,
+              void *buf, uint16_t max_len) {
+    if (!net_up || port == 0 || !buf || max_len == 0 ||
+        !http_target_valid(host, path))
+        return -1;
+
+    if (adblock_is_enabled() && adblock_check_host(host)) {
+        adblock_record_http_block();
+        kprintf("AdBlock: blocked HTTPS request to %s\n", host);
+        return -1;
+    }
+
+    uint32_t ip;
+    if (ipv4_literal_parse(host, &ip) != 0 && dns_resolve(host, &ip) < 0) {
+        kprintf("https: dns %s FAILED\n", host);
+        return -1;
+    }
+
+    int fd = tcp_connect(ip, port);
+    if (fd < 0) {
+        kprintf("https: tcp_connect %s:%u FAILED\n", host, port);
+        return -1;
+    }
+
+    int result = ossl_https_get(fd, host, path, buf, max_len);
+    tcp_close(fd);
+    return result;
+}
+
+int ws_connect(ws_client_t *client, const char *host, uint16_t port,
+               int use_tls, const char *path) {
+    (void)host;
+    (void)port;
+    (void)use_tls;
+    (void)path;
+    if (client)
+        memset(client, 0, sizeof(*client));
+    return -1;
+}
+
+int ws_recv(ws_client_t *client, void *buf, int max_len, int timeout_ms) {
+    (void)client;
+    (void)buf;
+    (void)max_len;
+    (void)timeout_ms;
+    return -1;
+}
+
+int ws_send_text(ws_client_t *client, const char *text) {
+    (void)client;
+    (void)text;
+    return -1;
+}
+
+void ws_close(ws_client_t *client) {
+    if (client)
+        memset(client, 0, sizeof(*client));
+}
+
+#else
 /* ──────────────────────────────────────────────────────────────
  * HTTPS / TLS 1.2 over the single-connection TCP stack above.
  *
@@ -2191,7 +2321,9 @@ static int tls_parse_ipv4(const char *h, uint32_t *out) {
 
 int https_get(const char *host, uint16_t port, const char *path,
               void *buf, uint16_t max_len) {
-    if (!net_up || !host || !path || !buf) return -1;
+    if (!net_up || port == 0 || !buf || max_len == 0 ||
+        !http_target_valid(host, path))
+        return -1;
 
     if (adblock_is_enabled() && adblock_check_host(host)) {
         adblock_record_http_block();
@@ -2280,7 +2412,7 @@ int https_get(const char *host, uint16_t port, const char *path,
     }
 
     /* build GET */
-    char req[512]; int pos = 0;
+    char req[1280]; int pos = 0;
     const char *parts[] = {"GET ", path, " HTTP/1.1\r\nHost: ", host,
                            "\r\nUser-Agent: codeos-kernel/1.0\r\nConnection: close\r\nAccept: */*\r\nAccept-Encoding: identity\r\n\r\n", NULL};
     for (int i = 0; parts[i]; i++) {
@@ -2342,7 +2474,9 @@ fail:
 int https_post(const char *host, uint16_t port, const char *path,
                const void *body, uint16_t body_len,
                void *buf, uint16_t max_len) {
-    if (!net_up || !host || !path || !buf) return -1;
+    if (!net_up || port == 0 || !buf || max_len == 0 ||
+        !http_target_valid(host, path) || (body_len > 0 && !body))
+        return -1;
 
     if (adblock_is_enabled() && adblock_check_host(host)) {
         adblock_record_http_block();
@@ -2418,7 +2552,7 @@ int https_post(const char *host, uint16_t port, const char *path,
     }
 
     /* build POST request + body */
-    char req[512]; int pos = 0;
+    char req[1280]; int pos = 0;
     char hdr[96];
     sprintf(hdr, "%u", (unsigned)body_len);
     const char *parts[] = {"POST ", path, " HTTP/1.1\r\nHost: ", host,
@@ -2716,8 +2850,4 @@ void ws_close(ws_client_t *w) {
     tls_rx_closed = 1;
 }
 
-uint32_t net_get_ip(void) { return our_ip; }
-uint32_t net_get_gateway(void) { return gateway_ip; }
-uint32_t net_get_dns(void) { return dns_ip; }
-void net_get_mac(uint8_t *mac) { if (mac) memcpy(mac, our_mac, 6); }
-
+#endif

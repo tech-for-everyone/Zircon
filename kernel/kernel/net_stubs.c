@@ -1,8 +1,6 @@
-/* Network stubs for the Zircon kernel.
+/* Network stubs for builds that intentionally omit the Zircon network stack.
  *
- * Zircon has no network stack: the kernel Makefile leaves out tcp.c, ip.c
- * and net.c.  socket.c and udp.c are still compiled -- they are part of the
- * syscall layer -- and they call into the stack that is not there.
+ * The kernel Makefile excludes this file when the network stack is enabled.
  *
  * That stayed invisible while the syscall dispatcher was dead code: nothing
  * referenced syscall_entry, --gc-sections dropped the whole dispatcher, and
@@ -11,10 +9,8 @@
  * how they reach the kernel at all -- made the dispatcher live, and the
  * missing symbols turned into link errors.
  *
- * So: no-ops that fail.  Zircon has no sockets, and the honest answer to a
- * socket call is an error rather than a fake success.  A program that opens
- * a socket gets -1, exactly as it would on a kernel whose stack was
- * present but not yet configured.
+ * These functions are no-ops that fail, preserving linkable network-disabled
+ * builds without returning success-shaped results.
  *
  * NOTE: net.h is deliberately NOT included here.  The Zircon copy of net.h
  * declares net_get_ip() as a `static inline`, so including it in this file
@@ -72,8 +68,8 @@ int tcp_get_peer(int fd, uint32_t *ip, uint16_t *port) {
     return -1;
 }
 
-/* The HTTP transport the AI shim posts to (kernel/kernel/ai.c).  Zircon has
- * no network stack, so there is nothing to post to. */
+/* HTTP transport expected by optional kernel services in network-disabled
+ * builds. */
 int http_post(const char *host, uint16_t port, const char *path,
               const void *body, uint16_t body_len,
               void *buf, uint16_t max_len) {
